@@ -14,14 +14,15 @@ The pump connects to this add-on (TCP, port 8502) and the add-on publishes a
 
 ## Options
 
-All MQTT fields can be **left blank** — the add-on then inherits the broker from
-the Supervisor MQTT service (the Mosquitto broker add-on).
+This add-on runs on the host network (to reach the pump module over UDP), and
+host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
+**Fill in the MQTT fields manually.**
 
 | Option | Default | Description |
 |---|---|---|
-| `mqtt_host` | *(empty)* | Broker host. Leave empty to use the Supervisor MQTT service. |
+| `mqtt_host` | *(empty)* | Broker IP, e.g. `192.168.1.100`. Use the HA host IP, not `core-mosquitto` (does not resolve on the host network). |
 | `mqtt_port` | `1883` | Broker port. |
-| `mqtt_username` | *(empty)* | MQTT user (leave empty with the auto service). |
+| `mqtt_username` | *(empty)* | MQTT user. |
 | `mqtt_password` | *(empty)* | MQTT password. |
 | `module_ip` | *(empty)* | IP of the pump's WiFi module. Set it if several Hi-Flying/HF modules exist on the LAN. If empty, the add-on uses the module connected to it, or auto-discovers. |
 | `bridge_host` | *(empty)* | HA host IP the module should connect to. Auto-detected if empty. |

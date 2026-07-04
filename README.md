@@ -27,18 +27,22 @@ the pump.
 
 ## Configuration (add-on Options)
 
-**You can leave all MQTT fields blank.** When empty, the add-on inherits the
-broker automatically from the Supervisor MQTT service (the Mosquitto broker
-add-on) — host, port, username and password are all filled in for you. Only set
-these if you use an external broker.
+**Fill in the MQTT fields with your broker.** This add-on runs on the host
+network (needed to reach the pump's WiFi module over UDP), and host-network
+add-ons cannot use the Supervisor MQTT auto-discovery service — so set the
+broker manually:
 
-| Option | Leave blank? | Notes |
+| Option | Set to | Notes |
 |---|---|---|
-| `mqtt_host` / `mqtt_port` | ✅ yes | Inherited from the Supervisor MQTT service. |
-| `mqtt_username` / `mqtt_password` | ✅ yes | Inherited from the Supervisor MQTT service. |
-| `module_ip` | recommended to set | IP of the pump's WiFi module (e.g. `192.168.1.41`). Set it if you have more than one Hi-Flying/HF module on the LAN so the Adopt/Restore buttons target the right one. If blank, the add-on uses the module currently connected to it, or auto-discovers. |
+| `mqtt_host` | your broker IP, e.g. `192.168.1.100` | Use the Home Assistant host IP, **not** `core-mosquitto` (that internal name does not resolve on the host network). |
+| `mqtt_port` | `1883` | |
+| `mqtt_username` / `mqtt_password` | your MQTT user | Create one in the Mosquitto broker add-on if you don't have it. |
+| `module_ip` | the pump module IP, e.g. `192.168.1.41` | Recommended, especially if you have more than one Hi-Flying/HF module on the LAN. If blank, the add-on uses the module currently connected to it, or auto-discovers. |
 | `bridge_host` | usually blank | Home Assistant host IP the module should connect to. Auto-detected if blank. |
 | `cloud_host` / `cloud_port` | usually blank | Where **Restore** points the module back to (defaults to the AquaTemp cloud `www.fzdbiology.com:502`). |
+
+> If the add-on ever runs **without** host network, leaving the MQTT fields
+> blank makes it inherit the broker from the Supervisor MQTT service instead.
 
 ## Point the pump's module at the add-on (one click)
 
