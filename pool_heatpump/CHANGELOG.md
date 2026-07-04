@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+- Climate now supports **cool / heat / auto / off**, matching the app. Mode
+  register (2000) values verified against the app: cool=1, heat=2, auto=4.
+  Selecting a mode in Home Assistant sets the mode register and powers the unit
+  on; selecting "off" powers it off.
+
 ## 1.2.2
 
 - Fix **Ambient temperature** staying "Unknown": the ambient block is pushed by

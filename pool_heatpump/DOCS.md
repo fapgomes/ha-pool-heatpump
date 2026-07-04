@@ -32,7 +32,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 ## Entities
 
 - `climate.pool_heat_pump` — current water temperature (inlet), target
-  temperature (whole °C, range 15–40), and heat/off.
+  temperature (whole °C, range 15–40), and mode (cool/heat/auto/off).
 - **Inlet water temperature** sensor.
 - **Outlet water temperature** sensor.
 - **Ambient temperature** sensor.
@@ -52,7 +52,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 | 1001 | outlet water temperature | ÷10 °C |
 | 307 | ambient temperature | ×1 °C |
 | 1004 | fault code: high byte = ASCII letter, low byte = number (`0x5001` → `P01`) | — |
-| 2000 | mode | — |
+| 2000 | mode: cool=1, heat=2, auto=4 | — |
 | 2001 | power (0/1) | — |
 | 2004 | target temperature | ×1 °C |
 

@@ -44,6 +44,11 @@ REG_OUTLET = 1001    # outlet water temperature (÷10)
 REG_AMBIENT = 307    # ambient/air temperature (×1)
 REG_FAULT = 1004     # fault code: high byte = ASCII letter, low byte = number
 
+# mode register (2000) values, verified via the app: cool=1, auto=4; heat=2 from
+# the baseline (reg2000 was 2 while the app showed the heat/sun icon)
+HVAC_TO_REG = {"cool": 1, "heat": 2, "auto": 4}
+REG_TO_HVAC = {v: k for k, v in HVAC_TO_REG.items()}
+
 
 def decode_fault(v):
     """reg1004 -> fault code string. 0x5001 -> 'P01'; 0 -> 'OK'."""
@@ -93,6 +98,11 @@ class Bridge:
             return {
                 "power": r.get(REG_POWER),
                 "mode": r.get(REG_MODE),
+                "hvac_mode": (
+                    ("off" if r.get(REG_POWER) == 0
+                     else REG_TO_HVAC.get(r.get(REG_MODE), "off"))
+                    if REG_POWER in r else None
+                ),
                 "setpoint_c": r.get(REG_SETPOINT),
                 # climate current temp = inlet water (the app's main reading)
                 "water_temp_c": p.s16(r[REG_INLET]) / 10 if REG_INLET in r else None,
@@ -247,9 +257,9 @@ class Bridge:
             "unique_id": f"{NODE}_climate",
             "device": dev,
             "availability": avail,
-            "modes": ["off", "heat"],
+            "modes": ["off", "cool", "heat", "auto"],
             "mode_state_topic": f"{BASE}/state",
-            "mode_state_template": "{{ 'heat' if value_json.power == 1 else 'off' }}",
+            "mode_state_template": "{{ value_json.hvac_mode }}",
             "mode_command_topic": f"{BASE}/set/mode_hvac",
             "current_temperature_topic": f"{BASE}/state",
             "current_temperature_template": "{{ value_json.water_temp_c }}",
@@ -357,7 +367,13 @@ class Bridge:
         if topic.endswith("/set/setpoint"):
             self.send_write(REG_SETPOINT, int(round(float(val))))
         elif topic.endswith("/set/mode_hvac"):
-            self.send_write(REG_POWER, 0 if val == "off" else 1)
+            if val == "off":
+                self.send_write(REG_POWER, 0)
+            else:
+                reg_mode = HVAC_TO_REG.get(val)
+                if reg_mode is not None:
+                    self.send_write(REG_MODE, reg_mode)
+                self.send_write(REG_POWER, 1)
         elif topic.endswith("/set/power"):
             self.send_write(REG_POWER, int(val))
         elif topic.endswith("/set/mode"):
