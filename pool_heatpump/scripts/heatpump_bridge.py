@@ -39,6 +39,19 @@ BRIDGE_PORT = 8502
 REG_MODE = 2000
 REG_POWER = 2001
 REG_SETPOINT = 2004
+REG_INLET = 1003     # inlet water temperature (÷10) — the app's main reading
+REG_OUTLET = 1001    # outlet water temperature (÷10)
+REG_AMBIENT = 307    # ambient/air temperature (×1)
+REG_FAULT = 1004     # fault code: high byte = ASCII letter, low byte = number
+
+
+def decode_fault(v):
+    """reg1004 -> fault code string. 0x5001 -> 'P01'; 0 -> 'OK'."""
+    if not v:
+        return "OK"
+    hi, lo = v >> 8, v & 0xFF
+    letter = chr(hi) if 32 <= hi < 127 else "?"
+    return f"{letter}{lo:02d}"
 
 POLL_QUERY = bytes.fromhex("000000000009814100000001020000")
 
@@ -80,8 +93,12 @@ class Bridge:
                 "power": r.get(REG_POWER),
                 "mode": r.get(REG_MODE),
                 "setpoint_c": r.get(REG_SETPOINT),
-                "water_temp_c": p.s16(r.get(1001, 0)) / 10 if 1001 in r else None,
-                "temp_1003_c": p.s16(r.get(1003, 0)) / 10 if 1003 in r else None,
+                # climate current temp = inlet water (the app's main reading)
+                "water_temp_c": p.s16(r[REG_INLET]) / 10 if REG_INLET in r else None,
+                "inlet_water_c": p.s16(r[REG_INLET]) / 10 if REG_INLET in r else None,
+                "outlet_water_c": p.s16(r[REG_OUTLET]) / 10 if REG_OUTLET in r else None,
+                "ambient_c": p.s16(r[REG_AMBIENT]) if REG_AMBIENT in r else None,
+                "fault": decode_fault(r.get(REG_FAULT, 0)) if REG_FAULT in r else None,
                 "regs_2000": [r.get(2000 + i) for i in range(7)],
                 "n_regs": len(r),
                 "age_s": round(age, 1) if age is not None else None,
@@ -237,18 +254,38 @@ class Bridge:
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/climate/{NODE}/config",
             json.dumps(climate), retain=True)
-        # extra sensor: secondary temperature
-        sensor = {
-            "name": "Pool secondary temperature",
-            "unique_id": f"{NODE}_temp2",
+        # temperature sensors
+        for key, name, field in (
+            ("inlet", "Inlet water temperature", "inlet_water_c"),
+            ("outlet", "Outlet water temperature", "outlet_water_c"),
+            ("ambient", "Ambient temperature", "ambient_c"),
+        ):
+            sensor = {
+                "name": name,
+                "unique_id": f"{NODE}_{key}",
+                "device": dev, "availability": avail,
+                "state_topic": f"{BASE}/state",
+                "value_template": f"{{{{ value_json.{field} }}}}",
+                "unit_of_measurement": "°C", "device_class": "temperature",
+                "state_class": "measurement",
+            }
+            self.mqtt.publish(
+                f"{DISCOVERY_PREFIX}/sensor/{NODE}/{key}/config",
+                json.dumps(sensor), retain=True)
+        # fault code sensor (e.g. "P01"; "OK" when no fault)
+        fault = {
+            "name": "Fault code",
+            "unique_id": f"{NODE}_fault",
             "device": dev, "availability": avail,
             "state_topic": f"{BASE}/state",
-            "value_template": "{{ value_json.temp_1003_c }}",
-            "unit_of_measurement": "°C", "device_class": "temperature",
+            "value_template": "{{ value_json.fault }}",
+            "icon": "mdi:alert-circle-outline",
         }
         self.mqtt.publish(
-            f"{DISCOVERY_PREFIX}/sensor/{NODE}/temp2/config",
-            json.dumps(sensor), retain=True)
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/fault/config",
+            json.dumps(fault), retain=True)
+        # remove the old secondary-temperature sensor from previous versions
+        self.mqtt.publish(f"{DISCOVERY_PREFIX}/sensor/{NODE}/temp2/config", "")
         # buttons to adopt / restore the WiFi module
         adopt = {
             "name": "Adopt module (point to HA)",

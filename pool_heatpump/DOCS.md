@@ -31,12 +31,28 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 
 ## Entities
 
-- `climate.pool_heat_pump` — current water temperature, target temperature
-  (whole °C, range 15–40), and heat/off.
-- Secondary temperature sensor.
+- `climate.pool_heat_pump` — current water temperature (inlet), target
+  temperature (whole °C, range 15–40), and heat/off.
+- **Inlet water temperature** sensor.
+- **Outlet water temperature** sensor.
+- **Ambient temperature** sensor.
+- **Fault code** sensor — the unit's fault code, e.g. `P01` (no flow); `OK`
+  when there is no fault.
 - **Module target** sensor — where the WiFi module currently points.
 - **Adopt module (point to HA)** button — repoint the module at this add-on.
 - **Restore module to cloud** button — put the module back on the cloud.
+
+### Register map (reverse-engineered, verified against the app)
+
+| Register | Meaning | Scale |
+|---|---|---|
+| 1003 | inlet water temperature (app's main reading) | ÷10 °C |
+| 1001 | outlet water temperature | ÷10 °C |
+| 307 | ambient temperature | ×1 °C |
+| 1004 | fault code: high byte = ASCII letter, low byte = number (`0x5001` → `P01`) | — |
+| 2000 | mode | — |
+| 2001 | power (0/1) | — |
+| 2004 | target temperature | ×1 °C |
 
 ## Adopt / Restore (no command line)
 

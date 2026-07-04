@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- Proper sensors, verified against the manufacturer app:
+  - **Inlet water temperature** (reg 1003) — now also the climate's current
+    temperature, matching the app's main reading.
+  - **Outlet water temperature** (reg 1001).
+  - **Ambient temperature** (reg 307).
+  - **Fault code** (reg 1004), decoded as letter+number, e.g. `P01` (no flow);
+    `OK` when there is no fault.
+- Removed the old "Pool secondary temperature" sensor.
+
 ## 1.1.3
 
 - Resilient MQTT: the client now reconnects automatically after a dropped
