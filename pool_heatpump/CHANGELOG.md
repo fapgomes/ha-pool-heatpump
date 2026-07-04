@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Fix: add `hassio_api: true` so the add-on can read its options and the MQTT
+  service from the Supervisor API. Without it, startup logged "Unable to access
+  the API, forbidden" and MQTT failed with "Name does not resolve".
+
 ## 1.1.0
 
 - Add **Adopt module (point to HA)** and **Restore module to cloud** buttons

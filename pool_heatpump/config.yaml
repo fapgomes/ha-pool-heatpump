@@ -1,5 +1,5 @@
 name: Pool Heat Pump (Modbus bridge)
-version: "1.1.0"
+version: "1.1.1"
 slug: pool_heatpump
 description: Local bridge for AquaTemp/fzdbiology-family pool heat pumps (Neoboost, POOL COMFORT, DOTELS-SWP…) to Home Assistant via MQTT — no cloud
 url: https://github.com/fapgomes/ha-pool-heatpump
@@ -16,6 +16,9 @@ init: false
 # LAN (UDP 48899 discovery) for the Adopt/Restore buttons, and so the pump can
 # connect to port 8502 directly on the host.
 host_network: true
+# Needed so bashio can read the add-on options and the MQTT service from the
+# Supervisor API (otherwise every API call is "forbidden").
+hassio_api: true
 services:
   - mqtt:need
 options:
