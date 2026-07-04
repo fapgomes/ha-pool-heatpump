@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2
+
+- Robust startup: read the add-on options directly from `/data/options.json`
+  instead of via bashio, so user-provided values work even if the Supervisor
+  API is unavailable. The API is now only used to auto-discover the MQTT service
+  when the MQTT host is left blank. Removes the bashio dependency in `run.sh`.
+
 ## 1.1.1
 
 - Fix: add `hassio_api: true` so the add-on can read its options and the MQTT
