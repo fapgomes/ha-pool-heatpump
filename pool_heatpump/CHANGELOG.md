@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.3
+
+- Resilient MQTT: the client now reconnects automatically after a dropped
+  connection (previously a `BrokenPipeError` killed the state publisher). On
+  every (re)connect it republishes discovery and re-subscribes.
+- The state-publish loop no longer crashes on transient errors.
+- Silence the benign `unit=0x81 fc=0x41` frame (the pump's reply to our poll).
+
 ## 1.1.2
 
 - Robust startup: read the add-on options directly from `/data/options.json`

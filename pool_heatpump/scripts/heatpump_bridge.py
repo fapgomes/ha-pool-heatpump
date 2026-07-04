@@ -147,6 +147,9 @@ class Bridge:
         elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_WRITE_SINGLE:
             # echo of one of our commands — the pump's confirmation
             pass
+        elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_REGISTER:
+            # benign response to our 0x41 poll query
+            pass
         else:
             print(f"[pump] unexpected frame unit={f.unit:#x} fc={f.fc:#x} "
                   f"payload={f.payload.hex(' ')}", flush=True)
@@ -193,14 +196,16 @@ class Bridge:
             host=c["host"], port=c.get("port", 1883),
             username=c.get("username"), password=c.get("password"),
             client_id="heatpump-bridge", keepalive=30,
-            on_message=self.on_mqtt,
+            on_message=self.on_mqtt, on_connect=self._on_mqtt_connect,
         )
-        self.mqtt.connect()
+        self.mqtt.start()
+        threading.Thread(target=self._state_loop, daemon=True).start()
+
+    def _on_mqtt_connect(self):
+        # runs after every (re)connect: (re)publish discovery and subscribe
         self.publish_discovery()
         self.mqtt.subscribe(f"{BASE}/set/#")
         self.mqtt.subscribe(f"{BASE}/module/#")
-        threading.Thread(target=self._state_loop, daemon=True).start()
-        print(f"[mqtt] connected to {c['host']}:{c.get('port', 1883)}", flush=True)
         threading.Thread(target=self.publish_module_target, daemon=True).start()
 
     def publish_discovery(self):
@@ -362,10 +367,13 @@ class Bridge:
 
     def _state_loop(self):
         while True:
-            if self.pump_sock is not None:
-                self.send_raw(POLL_QUERY)  # request a periodic full dump
-                time.sleep(2)
-                self.publish_state()
+            try:
+                if self.pump_sock is not None:
+                    self.send_raw(POLL_QUERY)  # request a periodic full dump
+                    time.sleep(2)
+                    self.publish_state()
+            except Exception as e:  # noqa: BLE001
+                print(f"[state] loop error: {e}", flush=True)
             time.sleep(28)
 
     # -- startup ------------------------------------------------------------
