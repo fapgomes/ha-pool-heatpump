@@ -77,6 +77,7 @@ class Bridge:
         self.lock = threading.Lock()
         self.pump_sock = None
         self.pump_ip = None  # IP of the module currently connected to us
+        self.pump_lock = threading.Lock()  # serialize writes to the pump socket
         self.tid = 0x1000
         self.last_update = 0.0
         self.last_publish = 0.0
@@ -116,24 +117,26 @@ class Bridge:
             }
 
     # -- commands -----------------------------------------------------------
-    def send_write(self, addr, value):
+    def _pump_send(self, frame):
+        """Send raw bytes to the pump, serialized so frames never interleave."""
         sock = self.pump_sock
         if sock is None:
-            return "error: pump not connected"
+            raise OSError("pump not connected")
+        with self.pump_lock:
+            sock.sendall(frame)
+
+    def send_write(self, addr, value):
         self.tid = (self.tid + 1) & 0xFFFF
         frame = p.cmd_write_single(self.tid, addr, value)
         try:
-            sock.sendall(frame)
+            self._pump_send(frame)
             return f"ok: reg{addr} <- {value} (frame {frame.hex()})"
         except OSError as e:
             return f"send error: {e}"
 
     def send_raw(self, frame):
-        sock = self.pump_sock
-        if sock is None:
-            return "error: pump not connected"
         try:
-            sock.sendall(frame)
+            self._pump_send(frame)
             return f"ok: sent {frame.hex()}"
         except OSError as e:
             return f"send error: {e}"
@@ -167,7 +170,8 @@ class Bridge:
         if f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_WRITE_MULTI:
             start, values = p.decode_write_multi(f)
             self.store(start, values)
-            sock.sendall(p.ack_write_multi(f))
+            with self.pump_lock:
+                sock.sendall(p.ack_write_multi(f))
             print(f"[block] {start} x{len(values)}", flush=True)
             # publish as soon as a block arrives (throttled) — some blocks (e.g.
             # ambient in block 300) are pushed only ~once per minute and are not
@@ -177,7 +181,8 @@ class Bridge:
                 self.last_publish = now
                 self.publish_state()
         elif f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_REGISTER:
-            sock.sendall(p.ack_register(f))
+            with self.pump_lock:
+                sock.sendall(p.ack_register(f))
             print(f"[pump] registration MAC {f.payload[5:].hex()}", flush=True)
         elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_WRITE_SINGLE:
             # echo of one of our commands — the pump's confirmation
@@ -225,23 +230,32 @@ class Bridge:
             return f"syntax error: {e}"
 
     # -- MQTT / Home Assistant ---------------------------------------------
+    # command topics we subscribe to (NOT the state topics we publish, so we
+    # never receive our own retained messages back)
+    CMD_TOPICS = ("set/setpoint", "set/mode_hvac", "set/power", "set/mode",
+                  "module/adopt", "module/restore", "module/reboot")
+
     def mqtt_start(self):
         c = self.mqtt_conf
+        # unique client id per process run avoids the broker kicking a lingering
+        # session with the same id (which caused a reconnect loop)
         self.mqtt = MqttClient(
             host=c["host"], port=c.get("port", 1883),
             username=c.get("username"), password=c.get("password"),
-            client_id="heatpump-bridge", keepalive=30,
+            client_id=f"heatpump-bridge-{os.getpid()}", keepalive=30,
             on_message=self.on_mqtt, on_connect=self._on_mqtt_connect,
         )
         self.mqtt.start()
         threading.Thread(target=self._state_loop, daemon=True).start()
+        # read the module target once at startup (not on every reconnect)
+        threading.Thread(target=self.publish_module_target, daemon=True).start()
 
     def _on_mqtt_connect(self):
-        # runs after every (re)connect: (re)publish discovery and subscribe
+        # runs after every (re)connect: (re)publish discovery and subscribe to
+        # the command topics only
         self.publish_discovery()
-        self.mqtt.subscribe(f"{BASE}/set/#")
-        self.mqtt.subscribe(f"{BASE}/module/#")
-        threading.Thread(target=self.publish_module_target, daemon=True).start()
+        for t in self.CMD_TOPICS:
+            self.mqtt.subscribe(f"{BASE}/{t}")
 
     def publish_discovery(self):
         dev = {
@@ -353,8 +367,14 @@ class Bridge:
             self.mqtt.publish(f"{BASE}/state", json.dumps(self.state()), retain=True)
 
     def on_mqtt(self, topic, payload):
+        # runs in the MQTT reader thread — never block or do I/O here; hand work
+        # to a short-lived thread so the reader keeps servicing the socket
         val = payload.decode(errors="replace").strip()
         print(f"[mqtt] cmd {topic} = {val}", flush=True)
+        threading.Thread(target=self._handle_cmd, args=(topic, val),
+                         daemon=True).start()
+
+    def _handle_cmd(self, topic, val):
         if topic.endswith("/module/adopt"):
             self.module_adopt()
             return
@@ -378,8 +398,10 @@ class Bridge:
             self.send_write(REG_POWER, int(val))
         elif topic.endswith("/set/mode"):
             self.send_write(REG_MODE, int(val))
+        else:
+            return
         time.sleep(1.5)
-        self.send_raw(POLL_QUERY)  # refresh the 2000 block
+        self.send_raw(POLL_QUERY)  # refresh the 2000 block after a command
 
     # -- module management (adopt / restore) --------------------------------
     def _find_module_ip(self):

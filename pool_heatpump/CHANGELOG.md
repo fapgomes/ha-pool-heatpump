@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.1
+
+- Fix an MQTT reconnect loop and the pump repeatedly re-registering:
+  - Use a unique MQTT client id per run (a lingering broker session with the
+    same id was kicking the connection in a loop).
+  - Subscribe only to the command topics, not a wildcard that also received the
+    add-on's own retained `module/target` message.
+  - Query the module over UDP only at startup and after module button actions,
+    not on every MQTT reconnect (which was disturbing the pump link).
+  - Serialize all writes to the pump socket and handle MQTT commands off the
+    reader thread, so frames can no longer interleave/corrupt.
+
 ## 1.3.0
 
 - Climate now supports **cool / heat / auto / off**, matching the app. Mode
