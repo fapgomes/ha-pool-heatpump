@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2
+
+- Fix **Ambient temperature** staying "Unknown": the ambient block is pushed by
+  the pump only ~once per minute and is not part of the poll dump. The bridge
+  now publishes state as soon as any telemetry block arrives (throttled to every
+  3 s), so ambient (and every value) appears as soon as it is received.
+
 ## 1.2.1
 
 - Add a **Reboot module** button (sends `AT+Z` to the WiFi module over UDP) to

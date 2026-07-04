@@ -74,6 +74,7 @@ class Bridge:
         self.pump_ip = None  # IP of the module currently connected to us
         self.tid = 0x1000
         self.last_update = 0.0
+        self.last_publish = 0.0
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
         self.mod_conf = mod_conf or {}
@@ -158,6 +159,13 @@ class Bridge:
             self.store(start, values)
             sock.sendall(p.ack_write_multi(f))
             print(f"[block] {start} x{len(values)}", flush=True)
+            # publish as soon as a block arrives (throttled) — some blocks (e.g.
+            # ambient in block 300) are pushed only ~once per minute and are not
+            # part of the poll dump, so don't wait for the 30 s timer
+            now = time.monotonic()
+            if now - self.last_publish >= 3:
+                self.last_publish = now
+                self.publish_state()
         elif f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_REGISTER:
             sock.sendall(p.ack_register(f))
             print(f"[pump] registration MAC {f.payload[5:].hex()}", flush=True)
