@@ -29,10 +29,12 @@ import time
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 import heatpump_proto as p
+import dotels_module as mod
 from mqtt_min import MqttClient
 
 LISTEN_PUMP = ("0.0.0.0", 8502)
 LISTEN_CTRL = ("127.0.0.1", 9000)
+BRIDGE_PORT = 8502
 
 REG_MODE = 2000
 REG_POWER = 2001
@@ -46,16 +48,22 @@ NODE = "pool_heat_pump"
 BASE = f"heatpump/{NODE}"
 CONF_PATH = os.path.join(os.path.dirname(__file__), "heatpump_bridge.conf")
 
+# module adoption / rollback defaults (AquaTemp/fzdbiology cloud)
+DEFAULT_CLOUD_HOST = "www.fzdbiology.com"
+DEFAULT_CLOUD_PORT = 502
+
 
 class Bridge:
-    def __init__(self, mqtt_conf=None):
+    def __init__(self, mqtt_conf=None, mod_conf=None):
         self.regs = {}  # addr -> uint16
         self.lock = threading.Lock()
         self.pump_sock = None
+        self.pump_ip = None  # IP of the module currently connected to us
         self.tid = 0x1000
         self.last_update = 0.0
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
+        self.mod_conf = mod_conf or {}
 
     # -- state --------------------------------------------------------------
     def store(self, start, values):
@@ -106,6 +114,7 @@ class Bridge:
     def handle_pump(self, sock, addr):
         print(f"[pump] connected from {addr}", flush=True)
         self.pump_sock = sock
+        self.pump_ip = addr[0]
         buf = b""
         sock.settimeout(120)
         try:
@@ -123,6 +132,7 @@ class Bridge:
             print("[pump] disconnected", flush=True)
             if self.pump_sock is sock:
                 self.pump_sock = None
+                # keep pump_ip: it's still the module's IP for adopt/restore
             sock.close()
 
     def on_frame(self, sock, f):
@@ -188,8 +198,10 @@ class Bridge:
         self.mqtt.connect()
         self.publish_discovery()
         self.mqtt.subscribe(f"{BASE}/set/#")
+        self.mqtt.subscribe(f"{BASE}/module/#")
         threading.Thread(target=self._state_loop, daemon=True).start()
         print(f"[mqtt] connected to {c['host']}:{c.get('port', 1883)}", flush=True)
+        threading.Thread(target=self.publish_module_target, daemon=True).start()
 
     def publish_discovery(self):
         dev = {
@@ -232,6 +244,38 @@ class Bridge:
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/sensor/{NODE}/temp2/config",
             json.dumps(sensor), retain=True)
+        # buttons to adopt / restore the WiFi module
+        adopt = {
+            "name": "Adopt module (point to HA)",
+            "unique_id": f"{NODE}_adopt",
+            "device": dev, "availability": avail,
+            "command_topic": f"{BASE}/module/adopt",
+            "icon": "mdi:lan-connect",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/button/{NODE}/adopt/config",
+            json.dumps(adopt), retain=True)
+        restore = {
+            "name": "Restore module to cloud",
+            "unique_id": f"{NODE}_restore",
+            "device": dev, "availability": avail,
+            "command_topic": f"{BASE}/module/restore",
+            "icon": "mdi:cloud-upload",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/button/{NODE}/restore/config",
+            json.dumps(restore), retain=True)
+        # sensor showing the module's current data target (NETP)
+        target = {
+            "name": "Module target",
+            "unique_id": f"{NODE}_module_target",
+            "device": dev, "availability": avail,
+            "state_topic": f"{BASE}/module/target",
+            "icon": "mdi:server-network",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/module_target/config",
+            json.dumps(target), retain=True)
         self.mqtt.publish(f"{BASE}/availability", "online", retain=True)
 
     def publish_state(self):
@@ -241,6 +285,12 @@ class Bridge:
     def on_mqtt(self, topic, payload):
         val = payload.decode(errors="replace").strip()
         print(f"[mqtt] cmd {topic} = {val}", flush=True)
+        if topic.endswith("/module/adopt"):
+            self.module_adopt()
+            return
+        if topic.endswith("/module/restore"):
+            self.module_restore()
+            return
         if topic.endswith("/set/setpoint"):
             self.send_write(REG_SETPOINT, int(round(float(val))))
         elif topic.endswith("/set/mode_hvac"):
@@ -251,6 +301,64 @@ class Bridge:
             self.send_write(REG_MODE, int(val))
         time.sleep(1.5)
         self.send_raw(POLL_QUERY)  # refresh the 2000 block
+
+    # -- module management (adopt / restore) --------------------------------
+    def _find_module_ip(self):
+        # 1) explicit config wins
+        ip = self.mod_conf.get("module_ip")
+        if ip:
+            return ip
+        # 2) the module currently connected to us is unambiguous
+        if self.pump_ip:
+            return self.pump_ip
+        # 3) discover on the LAN; several HF modules may exist, so filter
+        found = mod.discover()
+        for f in found:
+            name = f["name"].upper()
+            if "DOTELS" in name or "SWP" in name:
+                return f["ip"]
+        if len(found) == 1:
+            return found[0]["ip"]
+        if found:
+            names = ", ".join(f"{f['name']}@{f['ip']}" for f in found)
+            print(f"[module] ambiguous — set module_ip. Candidates: {names}",
+                  flush=True)
+        return None
+
+    def module_adopt(self):
+        """Point the WiFi module at this add-on (local, no cloud)."""
+        ip = self._find_module_ip()
+        if not ip:
+            print("[module] adopt: no module found on the LAN", flush=True)
+            return
+        host = self.mod_conf.get("bridge_host") or mod.local_ip_towards(ip)
+        print(f"[module] adopt: {ip} -> {host}:{BRIDGE_PORT}", flush=True)
+        mod.set_target(ip, host, BRIDGE_PORT)
+        time.sleep(12)
+        self.publish_module_target()
+
+    def module_restore(self):
+        """Point the WiFi module back at the manufacturer cloud."""
+        ip = self._find_module_ip()
+        if not ip:
+            print("[module] restore: no module found on the LAN", flush=True)
+            return
+        host = self.mod_conf.get("cloud_host") or DEFAULT_CLOUD_HOST
+        port = self.mod_conf.get("cloud_port") or DEFAULT_CLOUD_PORT
+        print(f"[module] restore: {ip} -> {host}:{port}", flush=True)
+        mod.set_target(ip, host, port)
+        time.sleep(12)
+        self.publish_module_target()
+
+    def publish_module_target(self):
+        if not self.mqtt:
+            return
+        try:
+            ip = self._find_module_ip()
+            target = mod.get_target(ip) if ip else None
+        except OSError:
+            target = None
+        self.mqtt.publish(f"{BASE}/module/target", target or "unknown", retain=True)
 
     def _state_loop(self):
         while True:
@@ -287,9 +395,11 @@ class Bridge:
 def load_conf():
     if os.path.exists(CONF_PATH):
         with open(CONF_PATH) as f:
-            return json.load(f).get("mqtt")
-    return None
+            data = json.load(f)
+            return data.get("mqtt"), data.get("module", {})
+    return None, {}
 
 
 if __name__ == "__main__":
-    Bridge(mqtt_conf=load_conf()).serve()
+    mqtt_conf, mod_conf = load_conf()
+    Bridge(mqtt_conf=mqtt_conf, mod_conf=mod_conf).serve()
