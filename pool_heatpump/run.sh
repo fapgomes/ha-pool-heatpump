@@ -1,6 +1,6 @@
 #!/usr/bin/env bashio
-# Obtém as credenciais MQTT (das opções ou do serviço MQTT do Supervisor)
-# e lança a ponte.
+# Get the MQTT credentials (from the add-on options or the Supervisor MQTT
+# service) and launch the bridge.
 
 MQTT_HOST="$(bashio::config 'mqtt_host')"
 MQTT_PORT="$(bashio::config 'mqtt_port')"
@@ -12,7 +12,7 @@ if [ -z "${MQTT_HOST}" ] && bashio::services.available "mqtt"; then
     MQTT_PORT="$(bashio::services mqtt 'port')"
     MQTT_USER="$(bashio::services mqtt 'username')"
     MQTT_PASS="$(bashio::services mqtt 'password')"
-    bashio::log.info "A usar o serviço MQTT do Supervisor em ${MQTT_HOST}:${MQTT_PORT}"
+    bashio::log.info "Using the Supervisor MQTT service at ${MQTT_HOST}:${MQTT_PORT}"
 fi
 
 cat > /opt/scripts/heatpump_bridge.conf <<EOF
@@ -26,6 +26,6 @@ cat > /opt/scripts/heatpump_bridge.conf <<EOF
 }
 EOF
 
-bashio::log.info "A iniciar a ponte da bomba de calor (porta 8502)..."
+bashio::log.info "Starting the pool heat pump bridge (port 8502)..."
 cd /opt/scripts
 exec python3 heatpump_bridge.py

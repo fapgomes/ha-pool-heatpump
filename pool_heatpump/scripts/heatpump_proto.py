@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Protocolo da bomba de calor Neoboost sobre o módulo DOTELS (Modbus TCP/MBAP).
+"""Neoboost/AquaTemp pool heat pump protocol over a transparent module (Modbus TCP/MBAP).
 
-A placa da bomba é o *master*: liga-se ao servidor (originalmente a cloud) e
-EMPURRA telemetria com FC 0x10 (Write Multiple Registers), unit 0x01. O servidor
-responde só com ACK. Para comandar, o servidor ENVIA FC 0x06 (Write Single
-Register), unit 0x81, para registos do bloco 2000.
+The pump mainboard is the *master*: it connects to the server (originally the
+manufacturer cloud) and PUSHES telemetry with FC 0x10 (Write Multiple
+Registers), unit 0x01. The server only ACKs. To command the pump, the server
+SENDS FC 0x06 (Write Single Register), unit 0x81, to registers in the 2000 block.
 
-Este módulo só faz parsing/construção de frames MBAP — sem I/O de rede.
+This module only parses/builds MBAP frames — no network I/O.
 """
 import struct
 from dataclasses import dataclass
 
 FC_WRITE_SINGLE = 0x06
 FC_WRITE_MULTI = 0x10
-FC_REGISTER = 0x41  # proprietária (registo/heartbeat)
+FC_REGISTER = 0x41  # proprietary (registration/heartbeat)
 
 UNIT_TELEMETRY = 0x01
 UNIT_COMMAND = 0x81
@@ -24,17 +24,17 @@ class Frame:
     tid: int
     unit: int
     fc: int
-    payload: bytes  # tudo depois do fc
+    payload: bytes  # everything after the fc byte
 
 
 def parse_frames(buf: bytes):
-    """Extrai frames MBAP completos de buf. Devolve (frames, resto)."""
+    """Extract complete MBAP frames from buf. Returns (frames, remainder)."""
     frames = []
     i = 0
     while len(buf) - i >= 8:
         tid, proto, length = struct.unpack(">HHH", buf[i : i + 6])
         if proto != 0:
-            # dessincronizado; salta um byte
+            # out of sync; skip one byte
             i += 1
             continue
         total = 6 + length
@@ -54,18 +54,18 @@ def build(tid: int, unit: int, fc: int, payload: bytes) -> bytes:
 
 
 def ack_write_multi(f: Frame) -> bytes:
-    """ACK a FC 0x10: ecoa endereço inicial + quantidade (4 bytes)."""
+    """ACK an FC 0x10: echo start address + quantity (4 bytes)."""
     start, qty = struct.unpack(">HH", f.payload[:4])
     return build(f.tid, f.unit, f.fc, struct.pack(">HH", start, qty))
 
 
 def ack_register(f: Frame) -> bytes:
-    """ACK a FC 0x41 (registo): ecoa os primeiros 4 bytes do payload."""
+    """ACK an FC 0x41 (registration): echo the first 4 payload bytes."""
     return build(f.tid, f.unit, f.fc, f.payload[:4])
 
 
 def decode_write_multi(f: Frame):
-    """Devolve (start_addr, [valores uint16]) de um FC 0x10."""
+    """Return (start_addr, [uint16 values]) from an FC 0x10 frame."""
     start, qty = struct.unpack(">HH", f.payload[:4])
     bytecount = f.payload[4]
     data = f.payload[5 : 5 + bytecount]
@@ -74,10 +74,10 @@ def decode_write_multi(f: Frame):
 
 
 def cmd_write_single(tid: int, addr: int, value: int) -> bytes:
-    """Frame de comando FC 0x06 (unit 0x81) para escrever um registo."""
+    """Command frame FC 0x06 (unit 0x81) to write a single register."""
     return build(tid, UNIT_COMMAND, FC_WRITE_SINGLE, struct.pack(">HH", addr, value))
 
 
 def s16(v: int) -> int:
-    """uint16 -> int16 com sinal (temperaturas negativas)."""
+    """uint16 -> signed int16 (for negative temperatures)."""
     return v - 0x10000 if v >= 0x8000 else v

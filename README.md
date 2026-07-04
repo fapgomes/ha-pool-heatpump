@@ -18,7 +18,7 @@ the pump.
 ## How to install (HA add-on repository)
 
 1. In Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**.
-2. Add this repository URL: `https://github.com/CHANGE-ME/ha-pool-heatpump`.
+2. Add this repository URL: `https://github.com/fapgomes/ha-pool-heatpump`.
 3. Install **Pool Heat Pump (Modbus bridge)** from the store.
 4. Make sure the **Mosquitto broker** add-on is installed (MQTT is configured
    automatically via the Supervisor MQTT service; otherwise set host/user/pass

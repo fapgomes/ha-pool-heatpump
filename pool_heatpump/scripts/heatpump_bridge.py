@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Ponte local para a bomba de calor Neoboost — substitui a cloud fzdbiology.
+"""Local bridge for the pool heat pump — replaces the manufacturer cloud.
 
-A placa da bomba liga-se aqui (via módulo DOTELS em modo TCP Client). A ponte:
-  - responde ao registo (FC 0x41) e faz ACK da telemetria empurrada (FC 0x10);
-  - descodifica os registos para um dicionário de estado;
-  - aceita comandos numa porta de controlo local (127.0.0.1:CTRL_PORT) e injecta-os
-    na ligação da bomba como FC 0x06 (unit 0x81).
+The pump mainboard connects here (via a transparent WiFi/serial module in TCP
+Client mode). The bridge:
+  - answers registration (FC 0x41) and ACKs the pushed telemetry (FC 0x10);
+  - decodes the registers into a state dictionary;
+  - accepts commands on a local control port (127.0.0.1:CTRL_PORT) and injects
+    them into the pump connection as FC 0x06 (unit 0x81);
+  - publishes state and Home Assistant auto-discovery over MQTT, and turns HA
+    commands into register writes.
 
-Porta de controlo (linha de texto):
-  get                 -> imprime o estado JSON atual
-  set <addr> <valor>  -> escreve um registo (ex.: "set 2004 30" = setpoint 30°C)
-  setpoint <c>        -> atalho para reg 2004
-  power <0|1>         -> atalho para reg 2001
-  mode <n>            -> atalho para reg 2000
+Control port (text lines):
+  get                 -> print current JSON state
+  set <addr> <value>  -> write a register (e.g. "set 2004 30" = setpoint 30 C)
+  setpoint <c>        -> shortcut for reg 2004
+  power <0|1>         -> shortcut for reg 2001
+  mode <n>            -> shortcut for reg 2000
+  poll                -> request a full register dump (0x41 query)
 
-Sem dependências externas (stdlib).
+No external dependencies (stdlib only).
 """
 import json
 import os
@@ -36,7 +40,7 @@ REG_SETPOINT = 2004
 
 POLL_QUERY = bytes.fromhex("000000000009814100000001020000")
 
-# tópicos MQTT / Home Assistant
+# MQTT / Home Assistant topics
 DISCOVERY_PREFIX = "homeassistant"
 NODE = "pool_heat_pump"
 BASE = f"heatpump/{NODE}"
@@ -53,7 +57,7 @@ class Bridge:
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
 
-    # -- estado -------------------------------------------------------------
+    # -- state --------------------------------------------------------------
     def store(self, start, values):
         with self.lock:
             for i, v in enumerate(values):
@@ -75,32 +79,32 @@ class Bridge:
                 "age_s": round(age, 1) if age is not None else None,
             }
 
-    # -- comandos -----------------------------------------------------------
+    # -- commands -----------------------------------------------------------
     def send_write(self, addr, value):
         sock = self.pump_sock
         if sock is None:
-            return "erro: bomba não ligada"
+            return "error: pump not connected"
         self.tid = (self.tid + 1) & 0xFFFF
         frame = p.cmd_write_single(self.tid, addr, value)
         try:
             sock.sendall(frame)
             return f"ok: reg{addr} <- {value} (frame {frame.hex()})"
         except OSError as e:
-            return f"erro ao enviar: {e}"
+            return f"send error: {e}"
 
     def send_raw(self, frame):
         sock = self.pump_sock
         if sock is None:
-            return "erro: bomba não ligada"
+            return "error: pump not connected"
         try:
             sock.sendall(frame)
-            return f"ok: enviado {frame.hex()}"
+            return f"ok: sent {frame.hex()}"
         except OSError as e:
-            return f"erro ao enviar: {e}"
+            return f"send error: {e}"
 
-    # -- loop da bomba ------------------------------------------------------
+    # -- pump loop ----------------------------------------------------------
     def handle_pump(self, sock, addr):
-        print(f"[bomba] ligada de {addr}", flush=True)
+        print(f"[pump] connected from {addr}", flush=True)
         self.pump_sock = sock
         buf = b""
         sock.settimeout(120)
@@ -114,9 +118,9 @@ class Bridge:
                 for f in frames:
                     self.on_frame(sock, f)
         except OSError as e:
-            print(f"[bomba] erro: {e}", flush=True)
+            print(f"[pump] error: {e}", flush=True)
         finally:
-            print("[bomba] desligada", flush=True)
+            print("[pump] disconnected", flush=True)
             if self.pump_sock is sock:
                 self.pump_sock = None
             sock.close()
@@ -126,18 +130,18 @@ class Bridge:
             start, values = p.decode_write_multi(f)
             self.store(start, values)
             sock.sendall(p.ack_write_multi(f))
-            print(f"[bloco] {start} x{len(values)}", flush=True)
+            print(f"[block] {start} x{len(values)}", flush=True)
         elif f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_REGISTER:
             sock.sendall(p.ack_register(f))
-            print(f"[bomba] registo MAC {f.payload[5:].hex()}", flush=True)
+            print(f"[pump] registration MAC {f.payload[5:].hex()}", flush=True)
         elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_WRITE_SINGLE:
-            # eco de um comando nosso — confirmação da bomba
+            # echo of one of our commands — the pump's confirmation
             pass
         else:
-            print(f"[bomba] frame inesperado unit={f.unit:#x} fc={f.fc:#x} "
+            print(f"[pump] unexpected frame unit={f.unit:#x} fc={f.fc:#x} "
                   f"payload={f.payload.hex(' ')}", flush=True)
 
-    # -- loop de controlo ---------------------------------------------------
+    # -- control loop -------------------------------------------------------
     def handle_ctrl(self, sock, addr):
         f = sock.makefile("rw")
         for line in f:
@@ -164,13 +168,13 @@ class Bridge:
             if cmd == "mode":
                 return self.send_write(REG_MODE, int(parts[1]))
             if cmd == "poll":
-                # replica a query 0x41 que a cloud usa para pedir o dump completo
+                # replicate the 0x41 query the cloud uses to request a full dump
                 return self.send_raw(POLL_QUERY)
             if cmd == "raw":
                 return self.send_raw(bytes.fromhex(parts[1]))
-            return f"erro: comando desconhecido '{cmd}'"
+            return f"error: unknown command '{cmd}'"
         except (IndexError, ValueError) as e:
-            return f"erro de sintaxe: {e}"
+            return f"syntax error: {e}"
 
     # -- MQTT / Home Assistant ---------------------------------------------
     def mqtt_start(self):
@@ -185,7 +189,7 @@ class Bridge:
         self.publish_discovery()
         self.mqtt.subscribe(f"{BASE}/set/#")
         threading.Thread(target=self._state_loop, daemon=True).start()
-        print(f"[mqtt] ligado a {c['host']}:{c.get('port', 1883)}", flush=True)
+        print(f"[mqtt] connected to {c['host']}:{c.get('port', 1883)}", flush=True)
 
     def publish_discovery(self):
         dev = {
@@ -216,7 +220,7 @@ class Bridge:
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/climate/{NODE}/config",
             json.dumps(climate), retain=True)
-        # sensor extra: temperatura secundária
+        # extra sensor: secondary temperature
         sensor = {
             "name": "Pool secondary temperature",
             "unique_id": f"{NODE}_temp2",
@@ -246,27 +250,27 @@ class Bridge:
         elif topic.endswith("/set/mode"):
             self.send_write(REG_MODE, int(val))
         time.sleep(1.5)
-        self.send_raw(POLL_QUERY)  # refresca o bloco 2000
+        self.send_raw(POLL_QUERY)  # refresh the 2000 block
 
     def _state_loop(self):
         while True:
             if self.pump_sock is not None:
-                self.send_raw(POLL_QUERY)  # pede dump completo periódico
+                self.send_raw(POLL_QUERY)  # request a periodic full dump
                 time.sleep(2)
                 self.publish_state()
             time.sleep(28)
 
-    # -- arranque -----------------------------------------------------------
+    # -- startup ------------------------------------------------------------
     def serve(self):
         if self.mqtt_conf:
             try:
                 self.mqtt_start()
             except Exception as e:  # noqa: BLE001
-                print(f"[mqtt] falha ao ligar: {e}", flush=True)
+                print(f"[mqtt] connection failed: {e}", flush=True)
         threading.Thread(target=self._accept_loop,
                          args=(LISTEN_CTRL, self.handle_ctrl, "ctrl"),
                          daemon=True).start()
-        self._accept_loop(LISTEN_PUMP, self.handle_pump, "bomba")
+        self._accept_loop(LISTEN_PUMP, self.handle_pump, "pump")
 
     @staticmethod
     def _accept_loop(bind, handler, name):
@@ -274,7 +278,7 @@ class Bridge:
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(bind)
         srv.listen(5)
-        print(f"[{name}] à escuta em {bind}", flush=True)
+        print(f"[{name}] listening on {bind}", flush=True)
         while True:
             cli, addr = srv.accept()
             threading.Thread(target=handler, args=(cli, addr), daemon=True).start()

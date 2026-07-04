@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cliente MQTT 3.1.1 mínimo (QoS 0), stdlib apenas.
+"""Minimal MQTT 3.1.1 client (QoS 0), stdlib only.
 
-Suporta CONNECT (com user/pass opcional), PUBLISH (com retain), SUBSCRIBE,
-PING keepalive e receção de PUBLISH via callback. Suficiente para publicar
-estado e auto-descoberta do Home Assistant e receber comandos.
+Supports CONNECT (optional user/pass), PUBLISH (with retain), SUBSCRIBE,
+keepalive PING and PUBLISH reception via callback. Enough to publish state and
+Home Assistant auto-discovery, and to receive commands.
 """
 import socket
 import struct
@@ -42,7 +42,7 @@ class MqttClient:
         self.lock = threading.Lock()
         self._run = False
 
-    # -- ligação ------------------------------------------------------------
+    # -- connection ---------------------------------------------------------
     def connect(self):
         self.sock = socket.create_connection((self.host, self.port), timeout=10)
         flags = 0x02  # clean session
@@ -58,12 +58,12 @@ class MqttClient:
         self.sock.sendall(bytes([0x10]) + _encode_len(len(pkt)) + pkt)
         hdr = self._recv_packet()
         if hdr is None or hdr[0] >> 4 != 2 or (len(hdr[1]) >= 2 and hdr[1][1] != 0):
-            raise ConnectionError(f"CONNACK falhou: {hdr}")
+            raise ConnectionError(f"CONNACK failed: {hdr}")
         self._run = True
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._ping_loop, daemon=True).start()
 
-    # -- publicação/subscrição ---------------------------------------------
+    # -- publish/subscribe --------------------------------------------------
     def publish(self, topic, payload, retain=False):
         if isinstance(payload, str):
             payload = payload.encode()
@@ -78,7 +78,7 @@ class MqttClient:
         with self.lock:
             self.sock.sendall(bytes([0x82]) + _encode_len(len(pkt)) + pkt)
 
-    # -- receção ------------------------------------------------------------
+    # -- reception ----------------------------------------------------------
     def _recv_n(self, n):
         buf = b""
         while len(buf) < n:
@@ -125,7 +125,7 @@ class MqttClient:
                     try:
                         self.on_message(topic, payload)
                     except Exception as e:  # noqa: BLE001
-                        print(f"[mqtt] erro no callback: {e}", flush=True)
+                        print(f"[mqtt] callback error: {e}", flush=True)
         self._run = False
 
     def _ping_loop(self):
