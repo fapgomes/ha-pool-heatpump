@@ -81,7 +81,8 @@ AT+Z                                    # reboot to apply
 - Registration/heartbeat: `FC 0x41` (proprietary). A `0x41` query triggers a
   full register dump.
 - Key registers: `2004` = target temp (°C), `2001` = power (0/1),
-  `2000` = mode, `1001` = water temp (÷10).
+  `2000` = mode, `1003` = inlet water (÷10), `1001` = outlet water (÷10),
+  `307` = ambient (×1), `1004` = fault code (ASCII letter + number).
 
 See `pool_heatpump/DOCS.md` for details.
 
@@ -89,3 +90,7 @@ See `pool_heatpump/DOCS.md` for details.
 
 Reverse-engineered from a Neoboost Full Inverter pump with a DOTELS-SWP
 (HF-LPT230) module. Not affiliated with AquaTemp or any manufacturer.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
