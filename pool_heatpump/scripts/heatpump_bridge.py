@@ -307,6 +307,16 @@ class Bridge:
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/button/{NODE}/restore/config",
             json.dumps(restore), retain=True)
+        reboot = {
+            "name": "Reboot module",
+            "unique_id": f"{NODE}_reboot",
+            "device": dev, "availability": avail,
+            "command_topic": f"{BASE}/module/reboot",
+            "icon": "mdi:restart",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/button/{NODE}/reboot/config",
+            json.dumps(reboot), retain=True)
         # sensor showing the module's current data target (NETP)
         target = {
             "name": "Module target",
@@ -332,6 +342,9 @@ class Bridge:
             return
         if topic.endswith("/module/restore"):
             self.module_restore()
+            return
+        if topic.endswith("/module/reboot"):
+            self.module_reboot()
             return
         if topic.endswith("/set/setpoint"):
             self.send_write(REG_SETPOINT, int(round(float(val))))
@@ -391,6 +404,18 @@ class Bridge:
         mod.set_target(ip, host, port)
         time.sleep(12)
         self.publish_module_target()
+
+    def module_reboot(self):
+        """Reboot the WiFi module (AT+Z). Useful to force a reconnect."""
+        ip = self._find_module_ip()
+        if not ip:
+            print("[module] reboot: no module found on the LAN", flush=True)
+            return
+        print(f"[module] reboot: {ip}", flush=True)
+        try:
+            mod.at(ip, "AT+Z")
+        except OSError as e:
+            print(f"[module] reboot failed: {e}", flush=True)
 
     def publish_module_target(self):
         if not self.mqtt:

@@ -41,6 +41,8 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 - **Module target** sensor — where the WiFi module currently points.
 - **Adopt module (point to HA)** button — repoint the module at this add-on.
 - **Restore module to cloud** button — put the module back on the cloud.
+- **Reboot module** button — reboot the WiFi module (`AT+Z`) to force a
+  reconnect.
 
 ### Register map (reverse-engineered, verified against the app)
 

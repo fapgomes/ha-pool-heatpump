@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Add a **Reboot module** button (sends `AT+Z` to the WiFi module over UDP) to
+  force a reconnect without the command line.
+
 ## 1.2.0
 
 - Proper sensors, verified against the manufacturer app:
