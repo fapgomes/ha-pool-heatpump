@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.2
+
+- Fix the real cause of the MQTT reconnect loop (and the resulting pump
+  instability / missing ambient): the MQTT socket kept the 10 s connect-time
+  read timeout, so the reader treated 10 s of broker silence as a disconnect
+  and reconnected every ~11 s. The socket is now blocking after connect; the
+  keepalive PING maintains the link. With a stable connection, the ambient
+  block (pushed ~once per 100 s) is now received.
+
 ## 1.3.1
 
 - Fix an MQTT reconnect loop and the pump repeatedly re-registering:

@@ -67,6 +67,10 @@ class MqttClient:
         if hdr is None or hdr[0] >> 4 != 2 or (len(hdr[1]) >= 2 and hdr[1][1] != 0):
             sock.close()
             raise ConnectionError(f"CONNACK failed: {hdr}")
+        # clear the connect-time read timeout so the reader blocks on recv
+        # instead of timing out every 10 s (which looked like a disconnect and
+        # caused an endless reconnect loop); the keepalive PING keeps it alive
+        sock.settimeout(None)
         self.sock = sock
         self.connected = True
         threading.Thread(target=self._reader, args=(sock,), daemon=True).start()
