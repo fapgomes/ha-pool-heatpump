@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.3
+
+- Fix **Ambient temperature** never updating: the periodic 0x41 poll (every
+  30 s) suppressed the pump's ambient block (pushed ~once per 100 s). The
+  bridge now relies on the pump's own pushes and polls only every ~5 min just
+  to refresh the settings block; the post-command poll was removed (the pump
+  re-pushes settings on change anyway).
+
 ## 1.3.2
 
 - Fix the real cause of the MQTT reconnect loop (and the resulting pump

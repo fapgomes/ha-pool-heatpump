@@ -398,10 +398,8 @@ class Bridge:
             self.send_write(REG_POWER, int(val))
         elif topic.endswith("/set/mode"):
             self.send_write(REG_MODE, int(val))
-        else:
-            return
-        time.sleep(1.5)
-        self.send_raw(POLL_QUERY)  # refresh the 2000 block after a command
+        # no poll here: the pump re-pushes the settings block on change, and a
+        # poll would suppress the ambient block
 
     # -- module management (adopt / restore) --------------------------------
     def _find_module_ip(self):
@@ -474,15 +472,22 @@ class Bridge:
         self.mqtt.publish(f"{BASE}/module/target", target or "unknown", retain=True)
 
     def _state_loop(self):
+        # Publish state every ~30 s. Poll (0x41) only rarely: a frequent poll
+        # suppresses the pump's ~100 s ambient-block push, so we let the pump
+        # push everything on its own and poll every ~5 min just to refresh the
+        # settings block (2000).
+        tick = 0
         while True:
             try:
                 if self.pump_sock is not None:
-                    self.send_raw(POLL_QUERY)  # request a periodic full dump
-                    time.sleep(2)
+                    if tick % 10 == 0:
+                        self.send_raw(POLL_QUERY)
+                        time.sleep(2)
                     self.publish_state()
             except Exception as e:  # noqa: BLE001
                 print(f"[state] loop error: {e}", flush=True)
-            time.sleep(28)
+            tick += 1
+            time.sleep(30)
 
     # -- startup ------------------------------------------------------------
     def serve(self):
