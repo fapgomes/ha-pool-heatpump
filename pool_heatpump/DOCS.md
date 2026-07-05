@@ -38,6 +38,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 - **Ambient temperature** sensor.
 - **Fault code** sensor — the unit's fault code, e.g. `P01` (no flow); `OK`
   when there is no fault.
+- **Compressor output rate** sensor (%).
 - **Module target** sensor — where the WiFi module currently points.
 - **Adopt module (point to HA)** button — repoint the module at this add-on.
 - **Restore module to cloud** button — put the module back on the cloud.
@@ -52,6 +53,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 | 1001 | outlet water temperature | ÷10 °C |
 | 307 | ambient temperature | ×1 °C |
 | 1004 | fault code: high byte = ASCII letter, low byte = number (`0x5001` → `P01`) | — |
+| 1006 | compressor output rate | % |
 | 2000 | mode: cool=1, heat=2, auto=4 | — |
 | 2001 | power (0/1) | — |
 | 2004 | target temperature | ×1 °C |

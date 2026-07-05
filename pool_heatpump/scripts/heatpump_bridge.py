@@ -43,6 +43,7 @@ REG_INLET = 1003     # inlet water temperature (÷10) — the app's main reading
 REG_OUTLET = 1001    # outlet water temperature (÷10)
 REG_AMBIENT = 307    # ambient/air temperature (×1)
 REG_FAULT = 1004     # fault code: high byte = ASCII letter, low byte = number
+REG_COMPRESSOR = 1006  # compressor output rate (%, ×1): 0 stopped, 100 full
 
 # mode register (2000) values, verified via the app: cool=1, auto=4; heat=2 from
 # the baseline (reg2000 was 2 while the app showed the heat/sun icon)
@@ -111,6 +112,7 @@ class Bridge:
                 "outlet_water_c": p.s16(r[REG_OUTLET]) / 10 if REG_OUTLET in r else None,
                 "ambient_c": p.s16(r[REG_AMBIENT]) if REG_AMBIENT in r else None,
                 "fault": decode_fault(r.get(REG_FAULT, 0)) if REG_FAULT in r else None,
+                "compressor_pct": r.get(REG_COMPRESSOR) if REG_COMPRESSOR in r else None,
                 "regs_2000": [r.get(2000 + i) for i in range(7)],
                 "n_regs": len(r),
                 "age_s": round(age, 1) if age is not None else None,
@@ -304,6 +306,19 @@ class Bridge:
             self.mqtt.publish(
                 f"{DISCOVERY_PREFIX}/sensor/{NODE}/{key}/config",
                 json.dumps(sensor), retain=True)
+        # compressor output rate (%)
+        compressor = {
+            "name": "Compressor output rate",
+            "unique_id": f"{NODE}_compressor",
+            "device": dev, "availability": avail,
+            "state_topic": f"{BASE}/state",
+            "value_template": "{{ value_json.compressor_pct }}",
+            "unit_of_measurement": "%", "state_class": "measurement",
+            "icon": "mdi:gauge",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/compressor/config",
+            json.dumps(compressor), retain=True)
         # fault code sensor (e.g. "P01"; "OK" when no fault)
         fault = {
             "name": "Fault code",

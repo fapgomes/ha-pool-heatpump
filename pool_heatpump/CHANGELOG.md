@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- Add **Compressor output rate** sensor (reg 1006, %), verified against the app
+  (0% stopped, 100% at full load).
+
 ## 1.3.3
 
 - Fix **Ambient temperature** never updating: the periodic 0x41 poll (every
