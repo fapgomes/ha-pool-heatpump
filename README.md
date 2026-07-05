@@ -15,6 +15,14 @@ the pump.
 > DOTELS, Elfin EW11, USR, …) — any transparent TCP↔serial gateway works. What
 > it depends on is the **pump protocol** (AquaTemp/fzdbiology family).
 
+## What you get
+
+The pump appears as a single Home Assistant device with a `climate` entity,
+sensors (inlet / outlet / ambient water temperatures, compressor output rate,
+fault code) and buttons to adopt/restore/reboot the WiFi module:
+
+<img src="images/entities.png" alt="Home Assistant entities: climate, temperature sensors, compressor output rate, fault code, and module buttons" width="420">
+
 ## How to install (HA add-on repository)
 
 [![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ffapgomes%2Fha-pool-heatpump)
