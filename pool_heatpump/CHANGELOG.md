@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0
+
+- New **Bridge status** diagnostic sensor: `ok` / `registration_storm` /
+  `no_telemetry` / `pump_disconnected`, with `detail`, `action`, `since`,
+  `count` and `last_telemetry` attributes, plus a **Last telemetry**
+  timestamp sensor. Detects the "registration storm" wedge (pump re-sends
+  its 0x41 registration every ~2 s and ignores replies — fixed only by
+  power-cycling the pump at the breaker, seen 2026-07-10).
+- Telemetry entities (climate, temperatures, compressor, fault) now become
+  **unavailable** when telemetry stops, instead of showing stale values
+  (dedicated availability topic + MQTT last-will if the add-on dies).
+- Registration frames are no longer logged on every occurrence during a
+  storm (first 3, then every 100th).
+
 ## 1.4.0
 
 - Add **Compressor output rate** sensor (reg 1006, %), verified against the app

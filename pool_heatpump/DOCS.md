@@ -39,6 +39,16 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 - **Fault code** sensor — the unit's fault code, e.g. `P01` (no flow); `OK`
   when there is no fault.
 - **Compressor output rate** sensor (%).
+- **Bridge status** sensor (diagnostic) — bridge-side communication health:
+  `ok`, `registration_storm` (pump re-registers every ~2 s and ignores the
+  bridge; power-cycle the heat pump at the breaker — rebooting the WiFi
+  module does not help), `no_telemetry` (connected but silent > 5 min) or
+  `pump_disconnected` (no TCP connection > 2 min). The `detail`, `action`,
+  `since`, `count` and `last_telemetry` attributes explain the state. While
+  the status is not `ok`, the climate and telemetry sensors show as
+  **unavailable** instead of keeping stale values.
+- **Last telemetry** sensor (diagnostic) — timestamp of the last valid
+  telemetry block received from the pump.
 - **Module target** sensor — where the WiFi module currently points.
 - **Adopt module (point to HA)** button — repoint the module at this add-on.
 - **Restore module to cloud** button — put the module back on the cloud.
