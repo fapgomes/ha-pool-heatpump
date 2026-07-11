@@ -323,6 +323,8 @@ class Bridge:
             username=c.get("username"), password=c.get("password"),
             client_id=f"heatpump-bridge-{os.getpid()}", keepalive=30,
             on_message=self.on_mqtt, on_connect=self._on_mqtt_connect,
+            will_topic=f"{BASE}/availability", will_payload="offline",
+            will_retain=True,
         )
         self.mqtt.start()
         threading.Thread(target=self._state_loop, daemon=True).start()
@@ -344,13 +346,18 @@ class Bridge:
             "manufacturer": "AquaTemp-family (Neoboost / DOTELS)",
             "model": "Full Inverter (local Modbus)",
         }
+        # process-alive availability (LWT-backed): every entity uses it
         avail = [{"topic": f"{BASE}/availability"}]
+        # telemetry availability: only entities whose values stop being
+        # meaningful when telemetry stops; Bridge status / Module target /
+        # buttons must stay visible so the user can see the error and act
+        tele_avail = avail + [{"topic": f"{BASE}/telemetry/availability"}]
         # climate
         climate = {
             "name": "Pool heat pump",
             "unique_id": f"{NODE}_climate",
             "device": dev,
-            "availability": avail,
+            "availability": tele_avail, "availability_mode": "all",
             "modes": ["off", "cool", "heat", "auto"],
             "mode_state_topic": f"{BASE}/state",
             "mode_state_template": "{{ value_json.hvac_mode }}",
@@ -375,7 +382,8 @@ class Bridge:
             sensor = {
                 "name": name,
                 "unique_id": f"{NODE}_{key}",
-                "device": dev, "availability": avail,
+                "device": dev,
+                "availability": tele_avail, "availability_mode": "all",
                 "state_topic": f"{BASE}/state",
                 "value_template": f"{{{{ value_json.{field} }}}}",
                 "unit_of_measurement": "°C", "device_class": "temperature",
@@ -388,7 +396,8 @@ class Bridge:
         compressor = {
             "name": "Compressor output rate",
             "unique_id": f"{NODE}_compressor",
-            "device": dev, "availability": avail,
+            "device": dev,
+            "availability": tele_avail, "availability_mode": "all",
             "state_topic": f"{BASE}/state",
             "value_template": "{{ value_json.compressor_pct }}",
             "unit_of_measurement": "%", "state_class": "measurement",
@@ -401,7 +410,8 @@ class Bridge:
         fault = {
             "name": "Fault code",
             "unique_id": f"{NODE}_fault",
-            "device": dev, "availability": avail,
+            "device": dev,
+            "availability": tele_avail, "availability_mode": "all",
             "state_topic": f"{BASE}/state",
             "value_template": "{{ value_json.fault }}",
             "icon": "mdi:alert-circle-outline",
@@ -453,6 +463,35 @@ class Bridge:
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/sensor/{NODE}/module_target/config",
             json.dumps(target), retain=True)
+        # bridge-level health (registration storm, stale telemetry, …)
+        status = {
+            "name": "Bridge status",
+            "unique_id": f"{NODE}_bridge_status",
+            "device": dev, "availability": avail,
+            "entity_category": "diagnostic",
+            "state_topic": f"{BASE}/bridge_status",
+            "json_attributes_topic": f"{BASE}/bridge_status/attributes",
+            "icon": "mdi:lan-check",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/bridge_status/config",
+            json.dumps(status), retain=True)
+        # timestamp of the last valid telemetry block ("X minutes ago" in HA);
+        # 'None' is MQTT sensor PAYLOAD_NONE -> state "unknown" until the
+        # first block arrives
+        last_tele = {
+            "name": "Last telemetry",
+            "unique_id": f"{NODE}_last_telemetry",
+            "device": dev, "availability": avail,
+            "entity_category": "diagnostic",
+            "state_topic": f"{BASE}/bridge_status/attributes",
+            "value_template": "{{ value_json.last_telemetry or 'None' }}",
+            "device_class": "timestamp",
+            "icon": "mdi:clock-check-outline",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/last_telemetry/config",
+            json.dumps(last_tele), retain=True)
         self.mqtt.publish(f"{BASE}/availability", "online", retain=True)
 
     def publish_state(self):
