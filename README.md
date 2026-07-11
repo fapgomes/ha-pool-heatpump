@@ -17,9 +17,23 @@ the pump.
 
 ## What you get
 
-The pump appears as a single Home Assistant device with a `climate` entity,
-sensors (inlet / outlet / ambient water temperatures, compressor output rate,
-fault code) and buttons to adopt/restore/reboot the WiFi module:
+The pump appears as a single Home Assistant device with:
+
+- `climate.pool_heat_pump` — current water temperature, target temperature,
+  mode (cool/heat/auto/off).
+- **Inlet / Outlet / Ambient temperature** sensors.
+- **Compressor output rate** sensor (%).
+- **Fault code** sensor — the unit's own fault code, e.g. `P01` (no flow);
+  `OK` when there is none.
+- **Bridge status** sensor (diagnostic) — communication health: `ok`,
+  `registration_storm` (pump wedged, ignoring replies — the `action`
+  attribute says what to do), `no_telemetry` or `pump_disconnected`. While
+  it is not `ok`, the climate and telemetry sensors show as **unavailable**
+  instead of keeping stale values.
+- **Last telemetry** sensor (diagnostic) — timestamp of the last telemetry
+  received from the pump.
+- **Module target** sensor and **Adopt / Restore / Reboot module** buttons
+  for the WiFi module.
 
 <img src="images/entities.png" alt="Home Assistant entities: climate, temperature sensors, compressor output rate, fault code, and module buttons" width="420">
 
