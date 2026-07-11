@@ -32,13 +32,17 @@ def _str(s: str) -> bytes:
 class MqttClient:
     def __init__(self, host, port=1883, username=None, password=None,
                  client_id="heatpump-bridge", keepalive=30,
-                 on_message=None, on_connect=None):
+                 on_message=None, on_connect=None,
+                 will_topic=None, will_payload=b"", will_retain=False):
         self.host = host
         self.port = port
         self.username = username
         self.password = password
         self.client_id = client_id
         self.keepalive = keepalive
+        self.will_topic = will_topic
+        self.will_payload = will_payload
+        self.will_retain = will_retain
         self.on_message = on_message      # callback(topic:str, payload:bytes)
         self.on_connect = on_connect      # callback() after each (re)connect
         self.sock = None
@@ -46,14 +50,16 @@ class MqttClient:
         self.connected = False
 
     # -- lifecycle ----------------------------------------------------------
-    def start(self):
-        """Begin the keeper thread that connects and keeps the link alive."""
-        threading.Thread(target=self._keeper, daemon=True).start()
-
-    def _open(self):
-        sock = socket.create_connection((self.host, self.port), timeout=10)
+    def _connect_packet(self):
+        """Full CONNECT packet (MQTT 3.1.1), incl. optional last-will."""
         flags = 0x02  # clean session
         payload = _str(self.client_id)
+        if self.will_topic:
+            flags |= 0x04 | (0x20 if self.will_retain else 0x00)  # QoS 0
+            will = self.will_payload
+            if isinstance(will, str):
+                will = will.encode()
+            payload += _str(self.will_topic) + struct.pack(">H", len(will)) + will
         if self.username:
             flags |= 0x80
             payload += _str(self.username)
@@ -62,7 +68,15 @@ class MqttClient:
             payload += _str(self.password)
         vh = _str("MQTT") + bytes([4, flags]) + struct.pack(">H", self.keepalive)
         pkt = vh + payload
-        sock.sendall(bytes([0x10]) + _encode_len(len(pkt)) + pkt)
+        return bytes([0x10]) + _encode_len(len(pkt)) + pkt
+
+    def start(self):
+        """Begin the keeper thread that connects and keeps the link alive."""
+        threading.Thread(target=self._keeper, daemon=True).start()
+
+    def _open(self):
+        sock = socket.create_connection((self.host, self.port), timeout=10)
+        sock.sendall(self._connect_packet())
         hdr = self._recv_packet(sock)
         if hdr is None or hdr[0] >> 4 != 2 or (len(hdr[1]) >= 2 and hdr[1][1] != 0):
             sock.close()
