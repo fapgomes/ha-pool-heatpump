@@ -59,6 +59,54 @@ def decode_fault(v):
     letter = chr(hi) if 32 <= hi < 127 else "?"
     return f"{letter}{lo:02d}"
 
+# -- bridge-level health (as opposed to pump faults in reg 1004) -------------
+STATUS_META = {
+    "ok": {
+        "detail": "Receiving telemetry from the pump normally.",
+        "action": "",
+    },
+    "registration_storm": {
+        "detail": "The pump re-sends its registration frame every ~2 s and "
+                  "ignores the bridge's replies; telemetry has stopped.",
+        "action": "Power-cycle the heat pump at the breaker (~30 s off). "
+                  "Rebooting the WiFi module does not fix this.",
+    },
+    "no_telemetry": {
+        "detail": "The pump is connected but has pushed no telemetry for "
+                  "over 5 minutes.",
+        "action": "Reboot the WiFi module; if that does not help, "
+                  "power-cycle the heat pump at the breaker.",
+    },
+    "pump_disconnected": {
+        "detail": "No TCP connection from the pump's WiFi module for over "
+                  "2 minutes.",
+        "action": "Check that the module is powered and on the WiFi "
+                  "network; press 'Adopt module (point to HA)' if it does "
+                  "not reconnect.",
+    },
+}
+
+REG_STREAK_STORM = 10   # unsolicited registrations (~2 s apart) = storm
+NO_TELEMETRY_S = 300    # no telemetry block while connected (normal ≈ 50 s)
+DISCONNECTED_S = 120    # no pump TCP connection
+
+
+def evaluate_status(connected, disconnected_s, reg_streak, since_block_s):
+    """Bridge-level health from raw signals -> a STATUS_META key.
+
+    A healthy pump registers at most once, immediately followed by a full
+    dump; an unsolicited registration every ~2 s with no telemetry block in
+    between means the pump is not hearing our replies (serial link wedged —
+    seen 2026-07-10, fixed only by power-cycling the pump).
+    """
+    if not connected and disconnected_s > DISCONNECTED_S:
+        return "pump_disconnected"
+    if reg_streak >= REG_STREAK_STORM:
+        return "registration_storm"
+    if connected and since_block_s > NO_TELEMETRY_S:
+        return "no_telemetry"
+    return "ok"
+
 POLL_QUERY = bytes.fromhex("000000000009814100000001020000")
 
 # MQTT / Home Assistant topics
