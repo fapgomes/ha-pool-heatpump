@@ -20,6 +20,7 @@ Control port (text lines):
 
 No external dependencies (stdlib only).
 """
+import datetime
 import json
 import os
 import socket
@@ -91,6 +92,12 @@ NO_TELEMETRY_S = 300    # no telemetry block while connected (normal ≈ 50 s)
 DISCONNECTED_S = 120    # no pump TCP connection
 
 
+def _iso(ts):
+    """Epoch seconds -> local ISO-8601 with UTC offset (HA timestamp class)."""
+    return (datetime.datetime.fromtimestamp(ts).astimezone()
+            .isoformat(timespec="seconds"))
+
+
 def evaluate_status(connected, disconnected_s, reg_streak, since_block_s):
     """Bridge-level health from raw signals -> a STATUS_META key.
 
@@ -133,6 +140,13 @@ class Bridge:
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
         self.mod_conf = mod_conf or {}
+        # bridge-level health (see evaluate_status)
+        self.status = "ok"
+        self.status_since = time.time()
+        self.reg_streak = 0                     # registrations since last block
+        self.last_block = time.monotonic()
+        self.last_block_wall = None             # wall-clock of last telemetry
+        self.pump_down_since = time.monotonic()  # None while a pump is connected
 
     # -- state --------------------------------------------------------------
     def store(self, start, values):
@@ -196,6 +210,10 @@ class Bridge:
         print(f"[pump] connected from {addr}", flush=True)
         self.pump_sock = sock
         self.pump_ip = addr[0]
+        self.pump_down_since = None
+        self.reg_streak = 0
+        self.last_block = time.monotonic()
+        self._update_status()
         buf = b""
         sock.settimeout(120)
         try:
@@ -214,6 +232,8 @@ class Bridge:
             if self.pump_sock is sock:
                 self.pump_sock = None
                 # keep pump_ip: it's still the module's IP for adopt/restore
+                self.pump_down_since = time.monotonic()
+                self._update_status()
             sock.close()
 
     def on_frame(self, sock, f):
@@ -223,6 +243,10 @@ class Bridge:
             with self.pump_lock:
                 sock.sendall(p.ack_write_multi(f))
             print(f"[block] {start} x{len(values)}", flush=True)
+            self.reg_streak = 0
+            self.last_block = time.monotonic()
+            self.last_block_wall = time.time()
+            self._update_status()
             # publish as soon as a block arrives (throttled) — some blocks (e.g.
             # ambient in block 300) are pushed only ~once per minute and are not
             # part of the poll dump, so don't wait for the 30 s timer
@@ -233,7 +257,12 @@ class Bridge:
         elif f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_REGISTER:
             with self.pump_lock:
                 sock.sendall(p.ack_register(f))
-            print(f"[pump] registration MAC {f.payload[5:].hex()}", flush=True)
+            self.reg_streak += 1
+            # don't flood the log during a storm (2 s cadence for hours)
+            if self.reg_streak <= 3 or self.reg_streak % 100 == 0:
+                print(f"[pump] registration MAC {f.payload[5:].hex()}"
+                      f" (streak {self.reg_streak})", flush=True)
+            self._update_status()
         elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_WRITE_SINGLE:
             # echo of one of our commands — the pump's confirmation
             pass
@@ -306,6 +335,7 @@ class Bridge:
         self.publish_discovery()
         for t in self.CMD_TOPICS:
             self.mqtt.subscribe(f"{BASE}/{t}")
+        self.publish_status()
 
     def publish_discovery(self):
         dev = {
@@ -429,6 +459,44 @@ class Bridge:
         if self.mqtt:
             self.mqtt.publish(f"{BASE}/state", json.dumps(self.state()), retain=True)
 
+    # -- bridge status / availability ----------------------------------------
+    def _update_status(self):
+        now = time.monotonic()
+        connected = self.pump_sock is not None
+        down_s = 0 if connected else now - (self.pump_down_since or now)
+        new = evaluate_status(connected, down_s, self.reg_streak,
+                              now - self.last_block)
+        if new == self.status:
+            return
+        meta = STATUS_META[new]
+        msg = f"[status] {self.status} -> {new}"
+        if meta["action"]:
+            msg += f" — {meta['action']}"
+        print(msg, flush=True)
+        self.status = new
+        self.status_since = time.time()
+        self.publish_status()
+
+    def publish_status(self):
+        if not self.mqtt:
+            return
+        meta = STATUS_META[self.status]
+        attrs = {
+            "detail": meta["detail"],
+            "action": meta["action"],
+            "since": _iso(self.status_since),
+            "last_telemetry": (_iso(self.last_block_wall)
+                               if self.last_block_wall else None),
+        }
+        if self.status == "registration_storm":
+            attrs["count"] = self.reg_streak
+        self.mqtt.publish(f"{BASE}/bridge_status", self.status, retain=True)
+        self.mqtt.publish(f"{BASE}/bridge_status/attributes",
+                          json.dumps(attrs), retain=True)
+        self.mqtt.publish(f"{BASE}/telemetry/availability",
+                          "online" if self.status == "ok" else "offline",
+                          retain=True)
+
     def on_mqtt(self, topic, payload):
         # runs in the MQTT reader thread — never block or do I/O here; hand work
         # to a short-lived thread so the reader keeps servicing the socket
@@ -547,6 +615,8 @@ class Bridge:
                         self.send_raw(POLL_QUERY)
                         time.sleep(2)
                     self.publish_state()
+                self._update_status()
+                self.publish_status()
             except Exception as e:  # noqa: BLE001
                 print(f"[state] loop error: {e}", flush=True)
             tick += 1
