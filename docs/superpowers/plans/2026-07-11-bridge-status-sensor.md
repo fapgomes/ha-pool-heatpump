@@ -313,7 +313,7 @@ git commit -m "mqtt_min: support MQTT 3.1.1 last-will (LWT) in CONNECT"
 
 **Interfaces:**
 - Consumes: `evaluate_status`, `STATUS_META` from Task 1.
-- Produces: `Bridge._update_status()` (re-evaluate; on change: log once + publish), `Bridge.publish_status()` (publish `{BASE}/bridge_status`, `{BASE}/bridge_status/attributes` JSON, `{BASE}/telemetry/availability`), instance fields `status`, `status_since`, `reg_streak`, `last_block`, `pump_down_since`. Task 4's discovery references the same topics.
+- Produces: `Bridge._update_status()` (re-evaluate; on change: log once + publish), `Bridge.publish_status()` (publish `{BASE}/bridge_status`, `{BASE}/bridge_status/attributes` JSON, `{BASE}/telemetry/availability`), module-level `_iso(ts) -> str` (epoch → local ISO-8601 with offset), instance fields `status`, `status_since`, `reg_streak`, `last_block`, `last_block_wall`, `pump_down_since`. The attributes JSON carries `detail`, `action`, `since`, `last_telemetry` (ISO or null) and, in a storm, `count`. Task 4's discovery references the same topics.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -394,6 +394,17 @@ class BridgeStatus(unittest.TestCase):
         self.assertIn("Power-cycle", attrs["action"])
         self.assertEqual(attrs["count"], hb.REG_STREAK_STORM)
         self.assertIn("since", attrs)
+        self.assertIsNone(attrs["last_telemetry"])  # no block received yet
+
+    def test_last_telemetry_attribute_set_by_block(self):
+        b = make_bridge()
+        b.on_frame(FakeSock(), block_frame())
+        b.publish_status()
+        attrs = json.loads(b.mqtt.last(f"{BASE}/bridge_status/attributes"))
+        self.assertIsNotNone(attrs["last_telemetry"])
+        # local ISO-8601 with UTC offset, parseable by HA's timestamp class
+        self.assertRegex(attrs["last_telemetry"],
+                         r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
 
     def test_block_clears_storm(self):
         b = make_bridge()
@@ -440,6 +451,15 @@ Expected: ERRORs — `AttributeError: 'Bridge' object has no attribute '_update_
 
 All in `pool_heatpump/scripts/heatpump_bridge.py`.
 
+**(a0)** add `import datetime` to the imports (alphabetical position, before `import json`), and after the `DISCONNECTED_S` constant add the timestamp helper:
+
+```python
+def _iso(ts):
+    """Epoch seconds -> local ISO-8601 with UTC offset (HA timestamp class)."""
+    return (datetime.datetime.fromtimestamp(ts).astimezone()
+            .isoformat(timespec="seconds"))
+```
+
 **(a)** `__init__` — add after `self.last_publish = 0.0`:
 
 ```python
@@ -448,6 +468,7 @@ All in `pool_heatpump/scripts/heatpump_bridge.py`.
         self.status_since = time.time()
         self.reg_streak = 0                     # registrations since last block
         self.last_block = time.monotonic()
+        self.last_block_wall = None             # wall-clock of last telemetry
         self.pump_down_since = time.monotonic()  # None while a pump is connected
 ```
 
@@ -472,6 +493,7 @@ and in the `finally` block, inside the `if self.pump_sock is sock:` guard, after
 ```python
             self.reg_streak = 0
             self.last_block = time.monotonic()
+            self.last_block_wall = time.time()
             self._update_status()
 ```
 
@@ -526,8 +548,9 @@ with
         attrs = {
             "detail": meta["detail"],
             "action": meta["action"],
-            "since": time.strftime("%Y-%m-%dT%H:%M:%S",
-                                   time.localtime(self.status_since)),
+            "since": _iso(self.status_since),
+            "last_telemetry": (_iso(self.last_block_wall)
+                               if self.last_block_wall else None),
         }
         if self.status == "registration_storm":
             attrs["count"] = self.reg_streak
@@ -566,7 +589,7 @@ with
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m unittest discover -s tests -v`
-Expected: all PASS (18 tests, OK)
+Expected: all PASS (19 tests, OK)
 
 - [ ] **Step 5: Commit**
 
@@ -585,7 +608,7 @@ git commit -m "Bridge: detect and publish bridge status; throttle storm logging"
 
 **Interfaces:**
 - Consumes: topics from Task 3 (`{BASE}/bridge_status`, `{BASE}/bridge_status/attributes`, `{BASE}/telemetry/availability`); `will_*` kwargs from Task 2.
-- Produces: HA discovery config `homeassistant/sensor/pool_heat_pump/bridge_status/config`; telemetry entities gain the second availability topic with `availability_mode: "all"`.
+- Produces: HA discovery configs `homeassistant/sensor/pool_heat_pump/bridge_status/config` and `homeassistant/sensor/pool_heat_pump/last_telemetry/config` (diagnostic, `device_class: timestamp`, reads `last_telemetry` from the attributes topic); telemetry entities gain the second availability topic with `availability_mode: "all"`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -625,6 +648,16 @@ class Discovery(unittest.TestCase):
                          f"{BASE}/bridge_status/attributes")
         self.assertEqual(cfg["entity_category"], "diagnostic")
         # must NOT depend on the telemetry availability topic
+        topics = [a["topic"] for a in cfg["availability"]]
+        self.assertNotIn(f"{BASE}/telemetry/availability", topics)
+
+    def test_last_telemetry_sensor(self):
+        cfg = discovery(self.b.mqtt, "sensor", "last_telemetry")
+        self.assertEqual(cfg["state_topic"], f"{BASE}/bridge_status/attributes")
+        self.assertEqual(cfg["value_template"],
+                         "{{ value_json.last_telemetry or 'None' }}")
+        self.assertEqual(cfg["device_class"], "timestamp")
+        self.assertEqual(cfg["entity_category"], "diagnostic")
         topics = [a["topic"] for a in cfg["availability"]]
         self.assertNotIn(f"{BASE}/telemetry/availability", topics)
 
@@ -697,6 +730,22 @@ Add the new sensor just before the final `self.mqtt.publish(f"{BASE}/availabilit
         self.mqtt.publish(
             f"{DISCOVERY_PREFIX}/sensor/{NODE}/bridge_status/config",
             json.dumps(status), retain=True)
+        # timestamp of the last valid telemetry block ("X minutes ago" in HA);
+        # 'None' is MQTT sensor PAYLOAD_NONE -> state "unknown" until the
+        # first block arrives
+        last_tele = {
+            "name": "Last telemetry",
+            "unique_id": f"{NODE}_last_telemetry",
+            "device": dev, "availability": avail,
+            "entity_category": "diagnostic",
+            "state_topic": f"{BASE}/bridge_status/attributes",
+            "value_template": "{{ value_json.last_telemetry or 'None' }}",
+            "device_class": "timestamp",
+            "icon": "mdi:clock-check-outline",
+        }
+        self.mqtt.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{NODE}/last_telemetry/config",
+            json.dumps(last_tele), retain=True)
 ```
 
 In `mqtt_start`, pass the will to the client (LWT — broker marks everything offline if the process dies):
@@ -715,7 +764,7 @@ In `mqtt_start`, pass the will to the client (LWT — broker marks everything of
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m unittest discover -s tests -v`
-Expected: all PASS (21 tests, OK)
+Expected: all PASS (23 tests, OK)
 
 - [ ] **Step 5: Commit**
 
@@ -835,9 +884,11 @@ In the Entities list of `pool_heatpump/DOCS.md`, after the "Compressor output ra
   bridge; power-cycle the heat pump at the breaker — rebooting the WiFi
   module does not help), `no_telemetry` (connected but silent > 5 min) or
   `pump_disconnected` (no TCP connection > 2 min). The `detail`, `action`,
-  `since` and `count` attributes explain the state. While the status is not
-  `ok`, the climate and telemetry sensors show as **unavailable** instead of
-  keeping stale values.
+  `since`, `count` and `last_telemetry` attributes explain the state. While
+  the status is not `ok`, the climate and telemetry sensors show as
+  **unavailable** instead of keeping stale values.
+- **Last telemetry** sensor (diagnostic) — timestamp of the last valid
+  telemetry block received from the pump.
 ```
 
 - [ ] **Step 2: CHANGELOG entry**
@@ -848,8 +899,9 @@ Prepend to `pool_heatpump/CHANGELOG.md`:
 ## 1.5.0
 
 - New **Bridge status** diagnostic sensor: `ok` / `registration_storm` /
-  `no_telemetry` / `pump_disconnected`, with `detail`, `action`, `since` and
-  `count` attributes. Detects the "registration storm" wedge (pump re-sends
+  `no_telemetry` / `pump_disconnected`, with `detail`, `action`, `since`,
+  `count` and `last_telemetry` attributes, plus a **Last telemetry**
+  timestamp sensor. Detects the "registration storm" wedge (pump re-sends
   its 0x41 registration every ~2 s and ignores replies — fixed only by
   power-cycling the pump at the breaker, seen 2026-07-10).
 - Telemetry entities (climate, temperatures, compressor, fault) now become

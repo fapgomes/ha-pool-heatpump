@@ -33,6 +33,15 @@ MQTT discovery sensor, `entity_category: diagnostic` (like Module target).
     does not help")
   - `since` — ISO timestamp when the condition started
   - `count` — number of registration frames seen (storm only)
+  - `last_telemetry` — ISO timestamp of the last valid telemetry block
+    received (null until the first block after startup)
+
+### New sensor: Last telemetry
+
+Diagnostic sensor with `device_class: timestamp` reading `last_telemetry`
+from the Bridge status attributes topic — Home Assistant renders it as
+"X minutes ago" and it is directly usable in automations. (Added mid-plan
+at the user's request, 2026-07-11.)
 
 ### Detection
 
