@@ -29,6 +29,8 @@ REG_PAYLOAD = (bytes.fromhex("000000050a")
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "storm"
+    if mode not in ("storm", "healthy", "silent"):
+        sys.exit(f"unknown mode {mode!r}: use storm|healthy|silent")
     host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
     port = int(sys.argv[3]) if len(sys.argv) > 3 else 8502
     s = socket.create_connection((host, port))

@@ -114,6 +114,7 @@ def evaluate_status(connected, disconnected_s, reg_streak, since_block_s):
         return "no_telemetry"
     return "ok"
 
+
 POLL_QUERY = bytes.fromhex("000000000009814100000001020000")
 
 # MQTT / Home Assistant topics

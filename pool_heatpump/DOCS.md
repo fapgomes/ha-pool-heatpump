@@ -44,7 +44,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
   bridge; power-cycle the heat pump at the breaker — rebooting the WiFi
   module does not help), `no_telemetry` (connected but silent > 5 min) or
   `pump_disconnected` (no TCP connection > 2 min). The `detail`, `action`,
-  `since`, `count` and `last_telemetry` attributes explain the state. While
+  `since` and `last_telemetry` attributes explain the state (`count` is added during a registration storm). While
   the status is not `ok`, the climate and telemetry sensors show as
   **unavailable** instead of keeping stale values.
 - **Last telemetry** sensor (diagnostic) — timestamp of the last valid
