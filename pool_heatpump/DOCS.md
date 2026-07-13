@@ -28,6 +28,7 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 | `bridge_host` | *(empty)* | HA host IP the module should connect to. Auto-detected if empty. |
 | `cloud_host` | `www.fzdbiology.com` | Where **Restore** points the module back to. |
 | `cloud_port` | `502` | Cloud port for **Restore**. |
+| `cloud_capture` | `false` | Diagnostic: transparently relay the pump to `cloud_host` and log every frame in both directions. The cloud (and its app) becomes the master; Home Assistant keeps showing telemetry read-only and local commands are ignored while enabled. |
 
 ## Entities
 

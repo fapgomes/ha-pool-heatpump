@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.1
+
+- New `cloud_capture` option (diagnostic): transparently relay the pump to
+  the manufacturer cloud while logging every frame in both directions, to
+  capture how the cloud handles the recurring registration storm. Telemetry
+  stays visible read-only in Home Assistant; local commands and the 5-min
+  poll are disabled while capturing.
+- Log the full registration payload (tid + all bytes) and each 5-min poll,
+  to pinpoint the storm trigger.
+
 ## 1.5.0
 
 - New **Bridge status** diagnostic sensor: `ok` / `registration_storm` /
