@@ -30,6 +30,7 @@ options:
   bridge_host: ""
   cloud_host: "www.fzdbiology.com"
   cloud_port: 502
+  cloud_capture: false
 schema:
   mqtt_host: str?
   mqtt_port: port?
@@ -39,3 +40,4 @@ schema:
   bridge_host: str?
   cloud_host: str?
   cloud_port: port?
+  cloud_capture: bool?

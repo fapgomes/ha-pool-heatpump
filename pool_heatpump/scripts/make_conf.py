@@ -67,6 +67,7 @@ def main():
             "cloud_host": opt.get("cloud_host") or "www.fzdbiology.com",
             "cloud_port": int(opt.get("cloud_port") or 502),
         },
+        "capture": bool(opt.get("cloud_capture")),
     }
     with open(CONF, "w") as f:
         json.dump(conf, f)

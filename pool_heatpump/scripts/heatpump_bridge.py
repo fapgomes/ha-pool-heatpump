@@ -129,7 +129,7 @@ DEFAULT_CLOUD_PORT = 502
 
 
 class Bridge:
-    def __init__(self, mqtt_conf=None, mod_conf=None):
+    def __init__(self, mqtt_conf=None, mod_conf=None, capture=False):
         self.regs = {}  # addr -> uint16
         self.lock = threading.Lock()
         self.pump_sock = None
@@ -141,6 +141,9 @@ class Bridge:
         self.mqtt = None
         self.mqtt_conf = mqtt_conf
         self.mod_conf = mod_conf or {}
+        # capture mode: transparently relay pump<->cloud and log every frame
+        # (diagnostic; the cloud is the master, local commands are disabled)
+        self.capture = capture
         # bridge-level health (see evaluate_status)
         self.status = "ok"
         self.status_since = time.time()
@@ -237,12 +240,13 @@ class Bridge:
                 self._update_status()
             sock.close()
 
-    def on_frame(self, sock, f):
+    def on_frame(self, sock, f, respond=True):
         if f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_WRITE_MULTI:
             start, values = p.decode_write_multi(f)
             self.store(start, values)
-            with self.pump_lock:
-                sock.sendall(p.ack_write_multi(f))
+            if respond:
+                with self.pump_lock:
+                    sock.sendall(p.ack_write_multi(f))
             print(f"[block] {start} x{len(values)}", flush=True)
             self.reg_streak = 0
             self.last_block = time.monotonic()
@@ -256,12 +260,14 @@ class Bridge:
                 self.last_publish = now
                 self.publish_state()
         elif f.unit == p.UNIT_TELEMETRY and f.fc == p.FC_REGISTER:
-            with self.pump_lock:
-                sock.sendall(p.ack_register(f))
+            if respond:
+                with self.pump_lock:
+                    sock.sendall(p.ack_register(f))
             self.reg_streak += 1
             # don't flood the log during a storm (2 s cadence for hours)
             if self.reg_streak <= 3 or self.reg_streak % 100 == 0:
-                print(f"[pump] registration MAC {f.payload[5:].hex()}"
+                print(f"[pump] registration tid={f.tid:#06x} "
+                      f"payload={f.payload.hex()}"
                       f" (streak {self.reg_streak})", flush=True)
             self._update_status()
         elif f.unit == p.UNIT_COMMAND and f.fc == p.FC_WRITE_SINGLE:
@@ -273,6 +279,67 @@ class Bridge:
         else:
             print(f"[pump] unexpected frame unit={f.unit:#x} fc={f.fc:#x} "
                   f"payload={f.payload.hex(' ')}", flush=True)
+
+    # -- cloud capture (transparent relay + frame logging) -------------------
+    def handle_pump_capture(self, sock, addr):
+        print(f"[pump] connected from {addr} (capture mode)", flush=True)
+        self.pump_sock = sock
+        self.pump_ip = addr[0]
+        self.pump_down_since = None
+        self.reg_streak = 0
+        self.last_block = time.monotonic()
+        self._update_status()
+        host = self.mod_conf.get("cloud_host") or DEFAULT_CLOUD_HOST
+        port = int(self.mod_conf.get("cloud_port") or DEFAULT_CLOUD_PORT)
+        try:
+            cloud = socket.create_connection((host, port), timeout=15)
+        except OSError as e:
+            print(f"[cap] cloud connect to {host}:{port} failed: {e}; "
+                  f"dropping pump so the module retries", flush=True)
+            if self.pump_sock is sock:
+                self.pump_sock = None
+                self.pump_down_since = time.monotonic()
+            sock.close()
+            return
+        cloud.settimeout(None)
+        print(f"[cap] relaying to cloud {host}:{port}", flush=True)
+        threading.Thread(target=self._relay,
+                         args=(cloud, sock, "<cloud", False),
+                         daemon=True).start()
+        try:
+            self._relay(sock, cloud, ">cloud", True)
+        finally:
+            print("[pump] disconnected (capture mode)", flush=True)
+            if self.pump_sock is sock:
+                self.pump_sock = None
+                self.pump_down_since = time.monotonic()
+                self._update_status()
+            for s in (sock, cloud):
+                try:
+                    s.close()
+                except OSError:
+                    pass
+
+    def _relay(self, src, dst, tag, is_pump_side):
+        """Forward raw bytes src->dst, logging every parsed frame."""
+        buf = b""
+        try:
+            while True:
+                data = src.recv(4096)
+                if not data:
+                    break
+                dst.sendall(data)  # byte-transparent: forward before parsing
+                buf += data
+                frames, buf = p.parse_frames(buf)
+                for f in frames:
+                    print(f"[cap] {tag} tid={f.tid:#06x} unit={f.unit:#04x} "
+                          f"fc={f.fc:#04x} payload={f.payload.hex()}",
+                          flush=True)
+                    if is_pump_side:
+                        # passive decode: keep MQTT state fresh, never respond
+                        self.on_frame(src, f, respond=False)
+        except OSError as e:
+            print(f"[cap] {tag} ended: {e}", flush=True)
 
     # -- control loop -------------------------------------------------------
     def handle_ctrl(self, sock, addr):
@@ -555,6 +622,12 @@ class Bridge:
         if topic.endswith("/module/reboot"):
             self.module_reboot()
             return
+        if self.capture:
+            # the cloud is the master while capturing; injecting writes would
+            # interleave with its traffic
+            print(f"[cap] command ignored in capture mode: {topic} = {val}",
+                  flush=True)
+            return
         if topic.endswith("/set/setpoint"):
             self.send_write(REG_SETPOINT, int(round(float(val))))
         elif topic.endswith("/set/mode_hvac"):
@@ -651,8 +724,10 @@ class Bridge:
         while True:
             try:
                 if self.pump_sock is not None:
-                    if tick % 10 == 0:
+                    if tick % 10 == 0 and not self.capture:
+                        # never inject our poll while the cloud is the master
                         self.send_raw(POLL_QUERY)
+                        print("[poll] sent", flush=True)
                         time.sleep(2)
                     self.publish_state()
                 self._update_status()
@@ -672,7 +747,11 @@ class Bridge:
         threading.Thread(target=self._accept_loop,
                          args=(LISTEN_CTRL, self.handle_ctrl, "ctrl"),
                          daemon=True).start()
-        self._accept_loop(LISTEN_PUMP, self.handle_pump, "pump")
+        handler = self.handle_pump_capture if self.capture else self.handle_pump
+        if self.capture:
+            print("[cap] capture mode ON: relaying pump<->cloud, "
+                  "local commands disabled", flush=True)
+        self._accept_loop(LISTEN_PUMP, handler, "pump")
 
     @staticmethod
     def _accept_loop(bind, handler, name):
@@ -690,10 +769,10 @@ def load_conf():
     if os.path.exists(CONF_PATH):
         with open(CONF_PATH) as f:
             data = json.load(f)
-            return data.get("mqtt"), data.get("module", {})
-    return None, {}
+            return data.get("mqtt"), data.get("module", {}), data.get("capture", False)
+    return None, {}, False
 
 
 if __name__ == "__main__":
-    mqtt_conf, mod_conf = load_conf()
-    Bridge(mqtt_conf=mqtt_conf, mod_conf=mod_conf).serve()
+    mqtt_conf, mod_conf, capture = load_conf()
+    Bridge(mqtt_conf=mqtt_conf, mod_conf=mod_conf, capture=capture).serve()
