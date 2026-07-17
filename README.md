@@ -103,11 +103,15 @@ AT+Z                                    # reboot to apply
 - Commands: server sends `FC 0x06` (write single), unit `0x81`.
 - Registration/heartbeat: `FC 0x41` (proprietary). A `0x41` query triggers a
   full register dump.
-- ⚠️ **Query only once, right after the pump connects** (the manufacturer
-  cloud does the same). A `0x41` query sent mid-session can collide with the
-  pump's own RS485 traffic and crash its comms processor: it then re-sends
-  its registration every ~2 s and is deaf to every reply (even the cloud's)
-  for ~24 h, until an internal give-up or a power cycle.
+- ⚠️ **A `0x41` query is only safe on a quiet bus** — send at most one per
+  connection, ~2 s after a lone pushed telemetry block, and only if the
+  settings block (2000) hasn't arrived by itself (after a pump boot the
+  registration is followed by a full dump, so no query is needed). A query
+  sent mid-session, mid-dump or while the pump's controller is still booting
+  (right after connect — the module comes up before the pump's MCU) can
+  crash the pump's comms processor: it then re-sends its registration every
+  ~2 s and is deaf to every reply (even the cloud's) for ~24 h, until an
+  internal give-up or a power cycle.
 - Key registers: `2004` = target temp (°C), `2001` = power (0/1),
   `2000` = mode, `1003` = inlet water (÷10), `1001` = outlet water (÷10),
   `307` = ambient (×1), `1004` = fault code (ASCII letter + number).
