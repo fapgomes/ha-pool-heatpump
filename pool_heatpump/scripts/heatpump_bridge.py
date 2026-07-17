@@ -40,8 +40,11 @@ BRIDGE_PORT = 8502
 REG_MODE = 2000
 REG_POWER = 2001
 REG_SETPOINT = 2004
-REG_INLET = 1003     # inlet water temperature (÷10) — the app's main reading
-REG_OUTLET = 1001    # outlet water temperature (÷10)
+REG_INLET = 1001     # inlet water temperature (÷10) = real pool temperature
+REG_OUTLET = 1003    # outlet water temperature (÷10) — the app's main reading
+# (1001/1003 confirmed physically 2026-07-17: with the compressor heating,
+# 1003 reads 0.7-0.9 C above 1001; equal when only the water pump runs.
+# The 1.2.0 app-screen match had them swapped.)
 REG_AMBIENT = 307    # ambient/air temperature (×1)
 REG_FAULT = 1004     # fault code: high byte = ASCII letter, low byte = number
 REG_COMPRESSOR = 1006  # compressor output rate (%, ×1): 0 stopped, 100 full
@@ -176,7 +179,7 @@ class Bridge:
                     if REG_POWER in r else None
                 ),
                 "setpoint_c": r.get(REG_SETPOINT),
-                # climate current temp = inlet water (the app's main reading)
+                # climate current temp = inlet water (real pool temperature)
                 "water_temp_c": p.s16(r[REG_INLET]) / 10 if REG_INLET in r else None,
                 "inlet_water_c": p.s16(r[REG_INLET]) / 10 if REG_INLET in r else None,
                 "outlet_water_c": p.s16(r[REG_OUTLET]) / 10 if REG_OUTLET in r else None,

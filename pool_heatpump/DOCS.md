@@ -61,8 +61,8 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
 
 | Register | Meaning | Scale |
 |---|---|---|
-| 1003 | inlet water temperature (app's main reading) | ÷10 °C |
-| 1001 | outlet water temperature | ÷10 °C |
+| 1001 | inlet water temperature (real pool temperature) | ÷10 °C |
+| 1003 | outlet water temperature (app's main reading) | ÷10 °C |
 | 307 | ambient temperature | ×1 °C |
 | 1004 | fault code: high byte = ASCII letter, low byte = number (`0x5001` → `P01`) | — |
 | 1006 | compressor output rate | % |

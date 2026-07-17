@@ -113,7 +113,7 @@ AT+Z                                    # reboot to apply
   ~2 s and is deaf to every reply (even the cloud's) for ~24 h, until an
   internal give-up or a power cycle.
 - Key registers: `2004` = target temp (°C), `2001` = power (0/1),
-  `2000` = mode, `1003` = inlet water (÷10), `1001` = outlet water (÷10),
+  `2000` = mode, `1001` = inlet water (÷10), `1003` = outlet water (÷10),
   `307` = ambient (×1), `1004` = fault code (ASCII letter + number).
 
 See `pool_heatpump/DOCS.md` for details.
