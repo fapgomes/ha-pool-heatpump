@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.0
+
+- **Registration storm: root cause found and fixed.** The periodic 5-minute
+  0x41 poll could collide with the pump's own RS485 traffic and crash the
+  pump's comms processor, leaving it deaf for ~24 h (re-registering every
+  2 s, ignoring all replies — a live capture showed even the manufacturer
+  cloud's identical acks being ignored). The bridge now polls exactly once,
+  ~2 s after the pump connects (matching the cloud's observed behaviour),
+  and never mid-session. Settings changes still arrive: the pump re-pushes
+  the settings block whenever a value changes.
+- Bridge status `registration_storm` action text now notes the pump
+  self-recovers after ~24 h (power-cycle at the breaker to clear it sooner).
+
 ## 1.5.1
 
 - New `cloud_capture` option (diagnostic): transparently relay the pump to
