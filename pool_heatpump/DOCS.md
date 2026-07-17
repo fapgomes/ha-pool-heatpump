@@ -41,10 +41,11 @@ host-network add-ons cannot use the Supervisor MQTT auto-discovery service.
   when there is no fault.
 - **Compressor output rate** sensor (%).
 - **Bridge status** sensor (diagnostic) — bridge-side communication health:
-  `ok`, `registration_storm` (pump re-registers every ~2 s and ignores the
-  bridge; power-cycle the heat pump at the breaker — rebooting the WiFi
-  module does not help), `no_telemetry` (connected but silent > 5 min) or
-  `pump_disconnected` (no TCP connection > 2 min). The `detail`, `action`,
+  `ok`, `registration_storm` (the pump's comms processor crashed and is deaf,
+  re-registering every ~2 s; it self-recovers after ~24 h, or power-cycle the
+  heat pump at the breaker — rebooting the WiFi module does not help),
+  `no_telemetry` (connected but silent > 5 min) or `pump_disconnected` (no
+  TCP connection > 2 min). The `detail`, `action`,
   `since` and `last_telemetry` attributes explain the state (`count` is added during a registration storm). While
   the status is not `ok`, the climate and telemetry sensors show as
   **unavailable** instead of keeping stale values.

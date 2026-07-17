@@ -69,7 +69,7 @@ class BridgeStatus(unittest.TestCase):
         self.assertEqual(b.mqtt.last(f"{BASE}/telemetry/availability"),
                          "offline")
         attrs = json.loads(b.mqtt.last(f"{BASE}/bridge_status/attributes"))
-        self.assertIn("Power-cycle", attrs["action"])
+        self.assertIn("power-cycle", attrs["action"].lower())
         self.assertEqual(attrs["count"], hb.REG_STREAK_STORM)
         self.assertIn("since", attrs)
         self.assertIsNone(attrs["last_telemetry"])  # no block received yet

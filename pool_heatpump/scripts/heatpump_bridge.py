@@ -67,10 +67,12 @@ STATUS_META = {
         "action": "",
     },
     "registration_storm": {
-        "detail": "The pump re-sends its registration frame every ~2 s and "
-                  "ignores the bridge's replies; telemetry has stopped.",
-        "action": "Power-cycle the heat pump at the breaker (~30 s off). "
-                  "Rebooting the WiFi module does not fix this.",
+        "detail": "The pump's comms processor crashed and is deaf: it re-sends "
+                  "its registration every ~2 s and ignores all replies (even "
+                  "the manufacturer cloud's); telemetry has stopped.",
+        "action": "It self-recovers after ~24 h. To clear it now, power-cycle "
+                  "the heat pump at the breaker (~30 s off); rebooting the "
+                  "WiFi module does not help.",
     },
     "no_telemetry": {
         "detail": "The pump is connected but has pushed no telemetry for "
@@ -210,6 +212,20 @@ class Bridge:
             return f"send error: {e}"
 
     # -- pump loop ----------------------------------------------------------
+    def _poll_on_connect(self, sock):
+        # One poll shortly after connect, exactly like the cloud does, to get
+        # a full dump (incl. the settings block). NEVER poll mid-session: a
+        # poll colliding with the pump's own RS485 traffic can crash its
+        # comms processor (tid resets to 1), leaving it deaf for ~24 h — the
+        # "registration storm". The cloud never polls mid-session either.
+        time.sleep(2)
+        if self.pump_sock is sock:
+            try:
+                self.send_raw(POLL_QUERY)
+                print("[poll] sent (on connect)", flush=True)
+            except OSError:
+                pass
+
     def handle_pump(self, sock, addr):
         print(f"[pump] connected from {addr}", flush=True)
         self.pump_sock = sock
@@ -218,6 +234,8 @@ class Bridge:
         self.reg_streak = 0
         self.last_block = time.monotonic()
         self._update_status()
+        threading.Thread(target=self._poll_on_connect, args=(sock,),
+                         daemon=True).start()
         buf = b""
         sock.settimeout(120)
         try:
@@ -716,25 +734,18 @@ class Bridge:
         self.mqtt.publish(f"{BASE}/module/target", target or "unknown", retain=True)
 
     def _state_loop(self):
-        # Publish state every ~30 s. Poll (0x41) only rarely: a frequent poll
-        # suppresses the pump's ~100 s ambient-block push, so we let the pump
-        # push everything on its own and poll every ~5 min just to refresh the
-        # settings block (2000).
-        tick = 0
+        # Publish state every ~30 s. NO periodic poll: see _poll_on_connect —
+        # mid-session polls can crash the pump's comms processor. The pump
+        # pushes all telemetry on its own and re-pushes the settings block
+        # (2000) whenever a value changes.
         while True:
             try:
                 if self.pump_sock is not None:
-                    if tick % 10 == 0 and not self.capture:
-                        # never inject our poll while the cloud is the master
-                        self.send_raw(POLL_QUERY)
-                        print("[poll] sent", flush=True)
-                        time.sleep(2)
                     self.publish_state()
                 self._update_status()
                 self.publish_status()
             except Exception as e:  # noqa: BLE001
                 print(f"[state] loop error: {e}", flush=True)
-            tick += 1
             time.sleep(30)
 
     # -- startup ------------------------------------------------------------

@@ -45,8 +45,9 @@ class EvaluateStatus(unittest.TestCase):
             self.assertIn(code, hb.STATUS_META)
             self.assertIn("detail", hb.STATUS_META[code])
             self.assertIn("action", hb.STATUS_META[code])
-        self.assertIn("Power-cycle",
-                      hb.STATUS_META["registration_storm"]["action"])
+        self.assertIn("power-cycle",
+                      hb.STATUS_META["registration_storm"]["action"].lower())
+        self.assertIn("24", hb.STATUS_META["registration_storm"]["action"])
 
 
 if __name__ == "__main__":
