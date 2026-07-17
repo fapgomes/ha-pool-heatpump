@@ -153,6 +153,7 @@ class Bridge:
         self.last_block = time.monotonic()
         self.last_block_wall = None             # wall-clock of last telemetry
         self.pump_down_since = time.monotonic()  # None while a pump is connected
+        self.polled = True  # armed (set False) per connection in handle_pump
 
     # -- state --------------------------------------------------------------
     def store(self, start, values):
@@ -212,17 +213,21 @@ class Bridge:
             return f"send error: {e}"
 
     # -- pump loop ----------------------------------------------------------
-    def _poll_on_connect(self, sock):
-        # One poll shortly after connect, exactly like the cloud does, to get
-        # a full dump (incl. the settings block). NEVER poll mid-session: a
-        # poll colliding with the pump's own RS485 traffic can crash its
-        # comms processor (tid resets to 1), leaving it deaf for ~24 h — the
-        # "registration storm". The cloud never polls mid-session either.
+    def _poll_after_first_block(self, sock):
+        # One poll per connection, 2 s after the FIRST telemetry block, to
+        # fetch the settings block (2000). That is the only proven-safe
+        # moment: the pump just finished its own transmission (quiet bus,
+        # next push ~50 s away) and its comms processor is fully up. A poll
+        # at any other time can crash that processor (tid resets to 1),
+        # leaving the pump deaf for ~24 h — the "registration storm". Polling
+        # right after connect is NOT safe: after a power-on the module
+        # connects while the pump MCU is still booting, and a poll during
+        # boot wedges it too (observed 2026-07-17).
         time.sleep(2)
         if self.pump_sock is sock:
             try:
                 self.send_raw(POLL_QUERY)
-                print("[poll] sent (on connect)", flush=True)
+                print("[poll] sent (post-block)", flush=True)
             except OSError:
                 pass
 
@@ -233,9 +238,8 @@ class Bridge:
         self.pump_down_since = None
         self.reg_streak = 0
         self.last_block = time.monotonic()
+        self.polled = False
         self._update_status()
-        threading.Thread(target=self._poll_on_connect, args=(sock,),
-                         daemon=True).start()
         buf = b""
         sock.settimeout(120)
         try:
@@ -270,6 +274,10 @@ class Bridge:
             self.last_block = time.monotonic()
             self.last_block_wall = time.time()
             self._update_status()
+            if respond and not self.polled:
+                self.polled = True
+                threading.Thread(target=self._poll_after_first_block,
+                                 args=(sock,), daemon=True).start()
             # publish as soon as a block arrives (throttled) — some blocks (e.g.
             # ambient in block 300) are pushed only ~once per minute and are not
             # part of the poll dump, so don't wait for the 30 s timer

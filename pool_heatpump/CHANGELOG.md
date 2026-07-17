@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.1
+
+- Fix the 1.6.0 on-connect poll: after a power-on the module connects while
+  the pump's comms processor is still booting, and a poll during boot wedges
+  it (registration storm) just like a mid-session one. The single poll now
+  goes out 2 s after the FIRST telemetry block of each connection — the pump
+  has just finished transmitting, the bus is quiet and the processor is
+  fully up.
+
 ## 1.6.0
 
 - **Registration storm: root cause found and fixed.** The periodic 5-minute
