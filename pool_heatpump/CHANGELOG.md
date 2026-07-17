@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.3
+
+- Fix swapped inlet/outlet water temperature sensors: reg 1001 is the inlet
+  (real pool temperature) and reg 1003 the outlet, not the other way around.
+  Confirmed physically against 10 days of recorder history: with the water
+  pump running and the compressor off both registers read equal; with the
+  compressor heating, 1003 sits 0.7–0.9 °C above 1001 — in heat mode the
+  warmer sensor is the exchanger outlet. The 1.2.0 app-screen match had the
+  labels reversed.
+- The climate entity's current temperature now follows the inlet (reg 1001),
+  i.e. the real pool temperature — it used to show the heated outlet water,
+  ~0.7 °C above the pool while heating.
+
 ## 1.6.2
 
 - Skip the post-block poll when the pump's boot dump already delivered the
