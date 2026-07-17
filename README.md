@@ -26,10 +26,11 @@ The pump appears as a single Home Assistant device with:
 - **Fault code** sensor — the unit's own fault code, e.g. `P01` (no flow);
   `OK` when there is none.
 - **Bridge status** sensor (diagnostic) — communication health: `ok`,
-  `registration_storm` (pump wedged, ignoring replies — the `action`
-  attribute says what to do), `no_telemetry` or `pump_disconnected`. While
-  it is not `ok`, the climate and telemetry sensors show as **unavailable**
-  instead of keeping stale values.
+  `registration_storm` (the pump's comms processor crashed and is deaf;
+  it self-recovers after ~24 h — the `action` attribute says what to do),
+  `no_telemetry` or `pump_disconnected`. While it is not `ok`, the climate
+  and telemetry sensors show as **unavailable** instead of keeping stale
+  values.
 - **Last telemetry** sensor (diagnostic) — timestamp of the last telemetry
   received from the pump.
 - **Module target** sensor and **Adopt / Restore / Reboot module** buttons
@@ -102,6 +103,11 @@ AT+Z                                    # reboot to apply
 - Commands: server sends `FC 0x06` (write single), unit `0x81`.
 - Registration/heartbeat: `FC 0x41` (proprietary). A `0x41` query triggers a
   full register dump.
+- ⚠️ **Query only once, right after the pump connects** (the manufacturer
+  cloud does the same). A `0x41` query sent mid-session can collide with the
+  pump's own RS485 traffic and crash its comms processor: it then re-sends
+  its registration every ~2 s and is deaf to every reply (even the cloud's)
+  for ~24 h, until an internal give-up or a power cycle.
 - Key registers: `2004` = target temp (°C), `2001` = power (0/1),
   `2000` = mode, `1003` = inlet water (÷10), `1001` = outlet water (÷10),
   `307` = ambient (×1), `1004` = fault code (ASCII letter + number).
