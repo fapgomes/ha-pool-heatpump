@@ -154,6 +154,7 @@ class Bridge:
         self.last_block_wall = None             # wall-clock of last telemetry
         self.pump_down_since = time.monotonic()  # None while a pump is connected
         self.polled = True  # armed (set False) per connection in handle_pump
+        self.got_settings = False  # settings block (2000) seen this connection
 
     # -- state --------------------------------------------------------------
     def store(self, start, values):
@@ -214,17 +215,19 @@ class Bridge:
 
     # -- pump loop ----------------------------------------------------------
     def _poll_after_first_block(self, sock):
-        # One poll per connection, 2 s after the FIRST telemetry block, to
-        # fetch the settings block (2000). That is the only proven-safe
-        # moment: the pump just finished its own transmission (quiet bus,
-        # next push ~50 s away) and its comms processor is fully up. A poll
-        # at any other time can crash that processor (tid resets to 1),
-        # leaving the pump deaf for ~24 h — the "registration storm". Polling
-        # right after connect is NOT safe: after a power-on the module
-        # connects while the pump MCU is still booting, and a poll during
-        # boot wedges it too (observed 2026-07-17).
+        # At most one poll per connection, 2 s after the FIRST telemetry
+        # block, and only if the settings block (2000) has not arrived by
+        # itself — after a pump boot the registration is followed by a full
+        # dump, so no poll is needed (and polling mid-dump is risky). The
+        # post-lone-block moment is the only proven-safe one: the pump just
+        # finished transmitting (quiet bus, next push ~50 s away) and its
+        # comms processor is fully up. A poll at any other time can crash
+        # that processor (tid resets to 1), leaving the pump deaf for ~24 h —
+        # the "registration storm". Polling right after connect is NOT safe
+        # either: after a power-on the module connects while the pump MCU is
+        # still booting, and a poll during boot wedges it too (2026-07-17).
         time.sleep(2)
-        if self.pump_sock is sock:
+        if self.pump_sock is sock and not self.got_settings:
             try:
                 self.send_raw(POLL_QUERY)
                 print("[poll] sent (post-block)", flush=True)
@@ -239,6 +242,7 @@ class Bridge:
         self.reg_streak = 0
         self.last_block = time.monotonic()
         self.polled = False
+        self.got_settings = False
         self._update_status()
         buf = b""
         sock.settimeout(120)
@@ -270,6 +274,8 @@ class Bridge:
                 with self.pump_lock:
                     sock.sendall(p.ack_write_multi(f))
             print(f"[block] {start} x{len(values)}", flush=True)
+            if start == 2000:
+                self.got_settings = True
             self.reg_streak = 0
             self.last_block = time.monotonic()
             self.last_block_wall = time.time()

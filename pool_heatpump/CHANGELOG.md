@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2
+
+- Skip the post-block poll when the pump's boot dump already delivered the
+  settings block (2000) — after a pump boot the poll landed mid-dump, which
+  is exactly the collision window the 1.6.x fixes exist to avoid. The single
+  poll now happens only when needed (bridge restart mid-session), 2 s after
+  a lone pushed block with the bus quiet.
+
 ## 1.6.1
 
 - Fix the 1.6.0 on-connect poll: after a power-on the module connects while
