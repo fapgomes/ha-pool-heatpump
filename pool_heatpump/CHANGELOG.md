@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.7.1
+
+- Switch to calendar versioning (`YYYY.M.N`, like Home Assistant itself).
+  This supersedes 1.6.3; the bridge itself is unchanged.
+- Add add-on store artwork: `icon.png` (128x128) and `logo.png` (250x100),
+  so the add-on no longer shows up unbranded in the store.
+
 ## 1.6.3
 
 - Fix swapped inlet/outlet water temperature sensors: reg 1001 is the inlet
