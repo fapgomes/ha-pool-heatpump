@@ -3,3 +3,6 @@ __pycache__/
 *.log
 *.conf
 heatpump_bridge.conf
+
+# Planning and design records (kept locally only)
+docs/superpowers/
