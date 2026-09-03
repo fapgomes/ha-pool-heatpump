@@ -123,6 +123,12 @@ See `pool_heatpump/DOCS.md` for details.
 Reverse-engineered from a Neoboost Full Inverter pump with a DOTELS-SWP
 (HF-LPT230) module. Not affiliated with AquaTemp or any manufacturer.
 
+## Support the project
+
+If this project is useful to you, consider buying me a coffee to help keep it going:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-fapgomes-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/fapgomes)
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
